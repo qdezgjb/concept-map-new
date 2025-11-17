@@ -908,6 +908,19 @@ def serve_llm_static(filename):
     
     return send_from_directory(current_dir, filename)
 
+@app.route('/agent/<path:filename>')
+def serve_agent_static(filename):
+    """提供agent目录的静态文件"""
+    import os
+    from flask import send_from_directory
+    
+    # 获取agent目录（llm目录的父目录下的agent目录）
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    agent_dir = os.path.join(parent_dir, 'agent')
+    
+    return send_from_directory(agent_dir, filename)
+
 if __name__ == '__main__':
     # 优先使用环境变量中的端口，如果没有则使用5000
     port = int(os.getenv('FLASK_PORT', os.getenv('PORT', 5000)))

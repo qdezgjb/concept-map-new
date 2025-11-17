@@ -21,6 +21,21 @@
                 <div class="function-section">
                     <h2>功能选择</h2>
                     
+                    <!-- 功能0：迷思概念探查 -->
+                    <div class="function-card">
+                        <div class="function-header">
+                            <h3>🔬 迷思概念探查</h3>
+                            <span class="function-desc">输入一个知识点，AI自动分析并产出相应的迷思概念</span>
+                        </div>
+                        <div class="function-content">
+                            <div class="input-group">
+                                <label for="misconceptionTopic">知识点：</label>
+                                <input type="text" id="misconceptionTopic" placeholder="请输入要探查的知识点" class="input-field">
+                            </div>
+                            <button class="btn btn-primary" id="exploreMisconceptionBtn">探查迷思概念</button>
+                        </div>
+                    </div>
+
                     <!-- 功能1：焦点问题生成 -->
                     <div class="function-card">
                         <div class="function-header">
@@ -234,6 +249,10 @@
     <script src="/llm/image-concept-map-service.js"></script> <!-- 图片生成概念图服务（独立模块）✨ NEW -->
     <script src="/llm/concept-map-evaluation-service.js"></script> <!-- 概念图评价服务（独立模块）✨ NEW -->
     <script src="/llm/llm-manager.js"></script>            <!-- AI服务管理器（依赖上述服务） -->
+    
+    <!-- 引入 Agent 服务模块 - 按依赖顺序加载 -->
+    <script src="/agent/dify-service.js"></script>        <!-- Dify 对话服务（独立模块） -->
+    <script src="/agent/misconception-service.js"></script> <!-- 迷思概念探查服务（依赖 Dify 服务） -->
     
     <!-- 引入整合后的功能模块 - 按依赖顺序加载 -->
     <script src="/web/process-updater.js"></script> <!-- 流程状态更新模块 -->

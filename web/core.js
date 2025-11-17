@@ -176,6 +176,271 @@ function displayUploadedImage(imageData, fileName) {
 }
 
 /**
+ * 探查迷思概念
+ * @param {string} topic - 知识点
+ */
+async function exploreMisconception(topic) {
+    console.log('开始探查迷思概念...');
+    
+    try {
+        // 检查服务是否可用
+        if (!window.DifyService || !window.MisconceptionService) {
+            throw new Error('Dify 服务或迷思概念服务未加载');
+        }
+        
+        // 从环境变量或配置中获取 Dify API 配置
+        // 注意：在实际应用中，这些配置应该从后端获取或通过环境变量设置
+        const difyApiBaseUrl = 'http://101.42.231.179/v1'; // 可以从后端API获取
+        const difyApiKey = 'app-4DGFRXExxcP0xZ5Og3AXfT2N'; // 应该从后端安全获取
+        
+        // 创建 Dify 服务实例
+        const difyService = new window.DifyService(difyApiBaseUrl, difyApiKey);
+        
+        // 创建迷思概念服务实例
+        const misconceptionService = new window.MisconceptionService(difyService);
+        
+        // 清除之前的内容
+        clearPreviousConceptMap();
+        
+        // 显示概念图展示区域
+        const conceptMapDisplay = document.querySelector('.concept-map-display');
+        if (conceptMapDisplay) {
+            conceptMapDisplay.style.display = 'flex';
+            
+            // 针对迷思概念探查功能，调整显示顺序：文本内容展示在前，概念图展示在后
+            const graphWindow = conceptMapDisplay.querySelector('.graph-window');
+            const aiIntroduction = conceptMapDisplay.querySelector('.ai-introduction');
+            
+            if (graphWindow && aiIntroduction) {
+                // 将文本内容展示移到概念图展示之前
+                conceptMapDisplay.insertBefore(aiIntroduction, graphWindow);
+                console.log('✅ 已调整迷思概念探查模块的显示顺序：文本内容在前，概念图在后');
+            }
+        }
+        
+        // 隐藏占位符
+        if (window.graphPlaceholder) {
+            window.graphPlaceholder.style.display = 'none';
+        }
+        
+        // 更新流程状态
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🔬 迷思概念探查</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>正在分析知识点并探查迷思概念...</p>
+                    <p style="margin: 5px 0;"><strong>知识点：</strong>${topic}</p>
+                    <p style="margin: 5px 0; color: #667eea;">✨ AI正在分析相关的迷思概念...</p>
+                </div>
+            `;
+        }
+        
+        // 显示文本内容区域
+        if (window.aiIntroText) {
+            window.aiIntroText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🤖 AI分析过程</h4>
+                    <div style="text-align: center; padding: 30px 0;">
+                        <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <p style="margin-top: 15px; color: #666;">正在探查迷思概念，请稍候...</p>
+                        <p style="margin-top: 5px; font-size: 12px; color: #999;">使用 Dify AI 平台</p>
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+        }
+        
+        // 初始化响应文本
+        let fullResponseText = '';
+        
+        // 定义回调函数
+        const onChunk = (content) => {
+            // 累积内容
+            fullResponseText += content;
+            
+            // 实时更新显示
+            if (window.aiIntroText) {
+                const displayText = fullResponseText.length > 2000 
+                    ? fullResponseText.substring(0, 2000) + '...' 
+                    : fullResponseText;
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">🔬 迷思概念探查结果 <span style="color: #28a745; font-size: 14px;">⚡ 生成中...</span></h4>
+                        <div style="line-height: 1.8; color: #333; font-size: 14px;">
+                            <div style="white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto;">${displayText}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        };
+        
+        const onComplete = (result) => {
+            console.log('✅ 迷思概念探查完成:', result);
+            
+            // 更新流程状态，添加一键生成思维导图按钮
+            if (window.processText) {
+                window.processText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 10px;">🔬 迷思概念探查</h4>
+                        <p style="margin: 5px 0;"><strong>当前操作：</strong>探查完成</p>
+                        <p style="margin: 5px 0;"><strong>知识点：</strong>${topic}</p>
+                        <p style="margin: 5px 0; color: #28a745;">✅ 迷思概念探查已完成</p>
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                            <button id="generateConceptMapFromMisconceptionBtn" class="btn btn-primary" style="width: 100%;">
+                                🗺️ 一键生成思维导图
+                            </button>
+                            <p style="margin-top: 8px; font-size: 12px; color: #999; text-align: center;">
+                                基于探查结果生成概念图
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                // 绑定按钮点击事件
+                const generateBtn = document.getElementById('generateConceptMapFromMisconceptionBtn');
+                if (generateBtn) {
+                    generateBtn.addEventListener('click', function() {
+                        console.log('点击一键生成思维导图按钮');
+                        
+                        // 检查是否正在生成
+                        if (isGenerating) {
+                            showMessage('正在生成中，请稍候...', 'warning');
+                            return;
+                        }
+                        
+                        // 禁用按钮
+                        generateBtn.disabled = true;
+                        generateBtn.textContent = '生成中...';
+                        generateBtn.classList.add('loading');
+                        
+                        // 调用文本生成概念图功能
+                        console.log('开始基于迷思概念内容生成概念图，内容长度:', fullResponseText.length);
+                        
+                        // 保存按钮引用到全局，以便在生成完成后恢复
+                        window.misconceptionGenerateBtn = generateBtn;
+                        
+                        // 调用生成函数
+                        generateConceptMapWithLLM('description', { description: fullResponseText })
+                            .then(() => {
+                                // 生成完成后恢复按钮状态
+                                if (window.misconceptionGenerateBtn) {
+                                    window.misconceptionGenerateBtn.disabled = false;
+                                    window.misconceptionGenerateBtn.textContent = '🗺️ 一键生成思维导图';
+                                    window.misconceptionGenerateBtn.classList.remove('loading');
+                                    window.misconceptionGenerateBtn = null;
+                                }
+                            })
+                            .catch((error) => {
+                                console.error('生成概念图失败:', error);
+                                // 即使失败也要恢复按钮状态
+                                if (window.misconceptionGenerateBtn) {
+                                    window.misconceptionGenerateBtn.disabled = false;
+                                    window.misconceptionGenerateBtn.textContent = '🗺️ 一键生成思维导图';
+                                    window.misconceptionGenerateBtn.classList.remove('loading');
+                                    window.misconceptionGenerateBtn = null;
+                                }
+                            });
+                    });
+                }
+            }
+            
+            // 显示最终结果
+            if (window.aiIntroText) {
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">🔬 迷思概念探查结果</h4>
+                        <div style="line-height: 1.8; color: #333; font-size: 14px;">
+                            <div style="white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto;">${fullResponseText}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 恢复按钮状态
+            if (window.exploreMisconceptionBtn) {
+                window.exploreMisconceptionBtn.classList.remove('loading');
+                window.exploreMisconceptionBtn.textContent = '探查迷思概念';
+                window.exploreMisconceptionBtn.disabled = false;
+            }
+            
+            showMessage('迷思概念探查完成！', 'success');
+        };
+        
+        const onError = (error) => {
+            console.error('❌ 迷思概念探查失败:', error);
+            
+            // 显示错误信息
+            if (window.aiIntroText) {
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 探查失败</h4>
+                        <p style="color: #666; margin: 10px 0;">${error.message || '未知错误'}</p>
+                        <p style="color: #999; font-size: 14px; margin-top: 15px;">请检查：</p>
+                        <ul style="color: #999; font-size: 14px; margin: 5px 0; padding-left: 20px;">
+                            <li>网络连接是否正常</li>
+                            <li>Dify API 服务是否可用</li>
+                            <li>API 密钥是否正确配置</li>
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            // 更新流程状态
+            if (window.processText) {
+                window.processText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #e74c3c; margin-bottom: 10px;">🔬 迷思概念探查</h4>
+                        <p style="margin: 5px 0;"><strong>当前操作：</strong>探查失败</p>
+                        <p style="margin: 5px 0;"><strong>知识点：</strong>${topic}</p>
+                        <p style="margin: 5px 0; color: #e74c3c;">❌ ${error.message || '探查失败'}</p>
+                    </div>
+                `;
+            }
+            
+            // 恢复按钮状态
+            if (window.exploreMisconceptionBtn) {
+                window.exploreMisconceptionBtn.classList.remove('loading');
+                window.exploreMisconceptionBtn.textContent = '探查迷思概念';
+                window.exploreMisconceptionBtn.disabled = false;
+            }
+            
+            showMessage('迷思概念探查失败: ' + (error.message || '未知错误'), 'error');
+        };
+        
+        // 调用服务探查迷思概念
+        await misconceptionService.exploreMisconception(topic, onChunk, onComplete, onError);
+        
+    } catch (error) {
+        console.error('❌ 调用迷思概念探查服务时发生错误:', error);
+        
+        // 显示错误信息
+        if (window.aiIntroText) {
+            window.aiIntroText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 系统错误</h4>
+                    <p style="color: #666; margin: 10px 0;">${error.message}</p>
+                    <p style="color: #999; font-size: 14px; margin-top: 15px;">请确保服务已正确加载。</p>
+                </div>
+            `;
+        }
+        
+        // 恢复按钮状态
+        if (window.exploreMisconceptionBtn) {
+            window.exploreMisconceptionBtn.classList.remove('loading');
+            window.exploreMisconceptionBtn.textContent = '探查迷思概念';
+            window.exploreMisconceptionBtn.disabled = false;
+        }
+        
+        showMessage('系统错误: ' + error.message, 'error');
+    }
+}
+
+/**
  * 从图片生成概念图
  * @param {string} imageData - Base64编码的图片数据
  * @param {string} fileName - 文件名
@@ -1087,6 +1352,14 @@ async function generateConceptMapWithLLM(type, data) {
         isGenerating = false;
         hideLoadingState();
         resetGenerateButtons();
+        
+        // 恢复迷思概念探查的生成按钮状态（如果存在）
+        if (window.misconceptionGenerateBtn) {
+            window.misconceptionGenerateBtn.disabled = false;
+            window.misconceptionGenerateBtn.textContent = '🗺️ 一键生成思维导图';
+            window.misconceptionGenerateBtn.classList.remove('loading');
+            window.misconceptionGenerateBtn = null;
+        }
     }
 }
 
@@ -1124,6 +1397,28 @@ function generateFocusQuestion(type, data) {
 
 function clearPreviousConceptMap() {
     console.log('开始清除之前的概念图内容...');
+    
+    // 恢复概念图展示区域的原始顺序（针对其他功能模块）
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (conceptMapDisplay) {
+        const currentProcess = conceptMapDisplay.querySelector('.current-process');
+        const graphWindow = conceptMapDisplay.querySelector('.graph-window');
+        const aiIntroduction = conceptMapDisplay.querySelector('.ai-introduction');
+        
+        // 如果顺序被改变（ai-introduction 在 graph-window 之前），恢复原始顺序
+        if (currentProcess && graphWindow && aiIntroduction) {
+            const children = Array.from(conceptMapDisplay.children);
+            const aiIndex = children.indexOf(aiIntroduction);
+            const graphIndex = children.indexOf(graphWindow);
+            
+            // 如果文本内容在概念图之前，恢复原始顺序
+            if (aiIndex < graphIndex) {
+                // 恢复顺序：current-process -> graph-window -> ai-introduction
+                conceptMapDisplay.insertBefore(graphWindow, aiIntroduction);
+                console.log('✅ 已恢复概念图展示区域的原始顺序');
+            }
+        }
+    }
     
     // 清空AI介绍文字
     const aiIntroText = document.getElementById('aiIntroText');
@@ -1192,6 +1487,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 获取DOM元素并设为全局变量（让所有模块都能访问）
+    window.misconceptionTopicInput = document.getElementById('misconceptionTopic');
+    window.exploreMisconceptionBtn = document.getElementById('exploreMisconceptionBtn');
     window.keywordInput = document.getElementById('keyword');
     window.descriptionTextarea = document.getElementById('description');
     window.keywordBtn = document.getElementById('generateKeywordBtn');
@@ -1261,6 +1558,28 @@ document.addEventListener('DOMContentLoaded', function() {
     //=============================================================================
     // 事件监听器绑定
     //=============================================================================
+    
+    // 迷思概念探查事件
+    if (window.exploreMisconceptionBtn) {
+        window.exploreMisconceptionBtn.addEventListener('click', function() {
+            console.log('迷思概念探查按钮被点击');
+            const topic = window.misconceptionTopicInput.value.trim();
+            if (!topic) {
+                showMessage('请输入知识点', 'warning');
+                return;
+            }
+            
+            // 设置按钮加载状态
+            window.exploreMisconceptionBtn.classList.add('loading');
+            window.exploreMisconceptionBtn.textContent = '探查中...';
+            window.exploreMisconceptionBtn.disabled = true;
+            
+            console.log('开始探查迷思概念，知识点:', topic);
+            
+            // 调用迷思概念探查功能
+            exploreMisconception(topic);
+        });
+    }
     
     // 焦点问题生成概念图事件
     if (window.keywordBtn) {
