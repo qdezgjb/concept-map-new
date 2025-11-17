@@ -1,0 +1,1512 @@
+// 概念图自动生成系统 - 核心模块
+// 包含: DOM初始化、事件绑定、应用初始化、概念图生成
+
+//=============================================================================
+// 全局变量定义
+//=============================================================================
+
+// 当前概念图数据
+window.currentGraphData = null;
+window.isGenerating = false;
+
+// 节点选中和拖动相关变量
+window.selectedNodeId = null;
+window.selectedLinkId = null;
+window.isDragging = false;
+window.dragStartX = 0;
+window.dragStartY = 0;
+window.dragOriginalNodeX = 0;
+window.dragOriginalNodeY = 0;
+
+// 操作历史记录
+window.operationHistory = [];
+window.currentHistoryIndex = -1;
+window.maxHistorySize = 20;
+
+//=============================================================================
+// 应用初始化函数
+//=============================================================================
+
+function cleanup() {
+    // 移除全局拖动事件监听器
+    document.removeEventListener('mousemove', handleDrag);
+    document.removeEventListener('mouseup', handleDragEnd);
+    
+    // 恢复页面样式
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+}
+
+function initializePage() {
+    console.log('开始初始化页面...');
+    
+    // 禁用导出按钮（初始状态）
+    if (window.exportBtn) {
+        window.exportBtn.disabled = true;
+        console.log('导出按钮已禁用');
+    } else {
+        console.error('exportBtn 元素未找到');
+    }
+    
+    // 确保编辑工具栏可见
+    if (window.editToolbar) {
+        window.editToolbar.style.display = 'grid';
+        console.log('编辑工具栏已设置为可见');
+    } else {
+        console.error('editToolbar 元素未找到');
+    }
+    
+    // 添加示例数据提示
+    if (window.keywordInput) {
+        window.keywordInput.placeholder = '人工智能的背景';
+        console.log('关键词输入框占位符已设置');
+    } else {
+        console.error('keywordInput 元素未找到');
+    }
+    
+    if (window.descriptionTextarea) {
+        window.descriptionTextarea.placeholder = '例如：人工智能是计算机科学的一个分支，致力于开发能够执行通常需要人类智能的任务的系统...';
+        console.log('描述文本框占位符已设置');
+    } else {
+        console.error('descriptionTextarea 元素未找到');
+    }
+    
+    // 初始化状态栏
+    updateStatusBar({ nodes: [], links: [] });
+    console.log('状态栏已初始化');
+    
+    // 初始化历史记录按钮
+    updateHistoryButtons();
+    console.log('历史记录按钮已初始化');
+    
+    // 初始化节点操作按钮状态
+    updateNodeOperationButtons();
+    console.log('节点操作按钮状态已初始化');
+    
+    showMessage('欢迎使用概念图自动生成系统！您可以直接使用右侧工具栏创建概念图，或使用AI生成', 'info');
+    console.log('页面初始化完成');
+}
+
+function displayUploadedImage(imageData, fileName) {
+    console.log('开始显示上传的图片:', fileName);
+    
+    // 隐藏占位符
+    if (window.graphPlaceholder) {
+        window.graphPlaceholder.style.display = 'none';
+    }
+    
+    // 显示概念图展示区域
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (conceptMapDisplay) {
+        conceptMapDisplay.style.display = 'block';
+    }
+    
+    // 更新当前流程文本
+    if (window.processText) {
+        window.processText.innerHTML = `
+            <div style="padding: 15px;">
+                <h4 style="color: #667eea; margin-bottom: 10px;">📤 概念图评价流程</h4>
+                <p style="margin: 5px 0;"><strong>当前操作：</strong>上传概念图图片</p>
+                <p style="margin: 5px 0;"><strong>文件名：</strong>${fileName}</p>
+                <p style="margin: 5px 0; color: #667eea;">✨ 正在调用AI进行专业评价分析...</p>
+            </div>
+        `;
+    }
+    
+    // 清空并更新SVG画布，显示上传的图片
+    const graphCanvas = document.querySelector('.graph-canvas');
+    if (graphCanvas) {
+        // 清空原有内容
+        graphCanvas.innerHTML = '';
+        
+        // 创建图片容器
+        const imageContainer = document.createElement('div');
+        imageContainer.style.cssText = `
+            width: 100%;
+            height: 700px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f5f5f5;
+            overflow: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        `;
+        
+        // 创建图片元素
+        const img = document.createElement('img');
+        img.src = imageData;
+        img.alt = fileName;
+        img.style.cssText = `
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        `;
+        
+        imageContainer.appendChild(img);
+        graphCanvas.appendChild(imageContainer);
+    }
+    
+    // 显示加载中的评价信息
+    if (window.aiIntroText) {
+        window.aiIntroText.innerHTML = `
+            <div style="padding: 15px;">
+                <h4 style="color: #667eea; margin-bottom: 10px;">🤖 AI评价分析</h4>
+                <div style="text-align: center; padding: 30px 0;">
+                    <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <p style="margin-top: 15px; color: #666;">正在分析概念图，请稍候...</p>
+                    <p style="margin-top: 5px; font-size: 12px; color: #999;">使用阿里云百炼 qwen3-vl-plus 模型</p>
+                </div>
+            </div>
+            <style>
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
+        `;
+    }
+    
+    console.log('图片显示完成，开始调用AI评价服务...');
+    
+    // 自动调用AI评价服务
+    analyzeUploadedConceptMap(imageData, fileName);
+}
+
+/**
+ * 从图片生成概念图
+ * @param {string} imageData - Base64编码的图片数据
+ * @param {string} fileName - 文件名
+ */
+async function generateConceptMapFromImage(imageData, fileName) {
+    console.log('开始从图片生成概念图...');
+    
+    if (isGenerating) {
+        console.log('正在生成中，忽略重复请求');
+        return;
+    }
+    
+    isGenerating = true;
+    
+    try {
+        // 检查服务是否可用
+        if (!window.ImageConceptMapService) {
+            throw new Error('图片生成概念图服务未加载');
+        }
+        
+        // 获取API基础URL
+        let apiBaseUrl = 'http://localhost:5000/api'; // 默认值
+        
+        if (window.llmManager && window.llmManager.config && window.llmManager.config.API_BASE_URL) {
+            apiBaseUrl = window.llmManager.config.API_BASE_URL;
+        } else if (window.portChecker) {
+            const currentPort = window.portChecker.getCurrentPort();
+            apiBaseUrl = `http://localhost:${currentPort}/api`;
+        }
+        
+        console.log('📍 使用API地址:', apiBaseUrl);
+        
+        // 清除之前的概念图内容
+        clearPreviousConceptMap();
+        
+        // 先显示概念图展示区域
+        const conceptMapDisplay = document.querySelector('.concept-map-display');
+        if (conceptMapDisplay) {
+            conceptMapDisplay.style.display = 'flex';
+        }
+        
+        // 隐藏占位符
+        if (window.graphPlaceholder) {
+            window.graphPlaceholder.style.display = 'none';
+        }
+        
+        // 显示加载状态
+        showLoadingAnimation();
+        
+        // 更新流程状态
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🖼️ 从图片生成概念图</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>正在分析图片并提取概念...</p>
+                    <p style="margin: 5px 0;"><strong>文件名：</strong>${fileName}</p>
+                    <p style="margin: 5px 0; color: #667eea;">✨ AI正在识别图片中的文字并生成概念图...</p>
+                </div>
+            `;
+        }
+        
+        // 显示文本内容区域
+        if (window.aiIntroText) {
+            window.aiIntroText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🤖 AI分析过程</h4>
+                    <div style="text-align: center; padding: 30px 0;">
+                        <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <p style="margin-top: 15px; color: #666;">正在分析图片，请稍候...</p>
+                        <p style="margin-top: 5px; font-size: 12px; color: #999;">使用阿里云百炼 qwen3-vl-plus 模型</p>
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+        }
+        
+        // 创建服务实例
+        const imageService = new window.ImageConceptMapService(apiBaseUrl);
+        
+        // 初始化响应文本
+        let fullResponseText = '';
+        
+        // 定义回调函数
+        const onChunk = (content) => {
+            // 累积内容
+            fullResponseText += content;
+            
+            // 实时更新显示（可选，显示流式输出）
+            if (window.aiIntroText) {
+                const displayText = fullResponseText.length > 500 
+                    ? fullResponseText.substring(0, 500) + '...' 
+                    : fullResponseText;
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">🤖 AI分析过程 <span style="color: #28a745; font-size: 14px;">⚡ 生成中...</span></h4>
+                        <div style="line-height: 1.8; color: #333; font-size: 14px;">
+                            <pre style="white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto;">${displayText}</pre>
+                        </div>
+                    </div>
+                `;
+            }
+        };
+        
+        const onComplete = (result) => {
+            console.log('✅ 从图片生成概念图成功:', result);
+            
+            if (!result.success) {
+                throw new Error(result.message || '生成失败');
+            }
+            
+            // 更新流程状态
+            if (window.processText) {
+                window.processText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 10px;">🖼️ 从图片生成概念图</h4>
+                        <p style="margin: 5px 0;"><strong>当前操作：</strong>概念图生成完成</p>
+                        <p style="margin: 5px 0;"><strong>文件名：</strong>${fileName}</p>
+                        <p style="margin: 5px 0; color: #28a745;">✅ 已成功提取 ${result.triples.length} 个三元组</p>
+                    </div>
+                `;
+            }
+            
+            // 更新文本内容区域
+            if (window.aiIntroText) {
+                const focusQuestion = result.focusQuestion || '未提取到焦点问题';
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">📊 提取结果</h4>
+                        <div style="line-height: 1.8; color: #333;">
+                            <p><strong>焦点问题：</strong>${focusQuestion}</p>
+                            <p><strong>三元组数量：</strong>${result.triples.length}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 设置焦点问题
+            window.focusQuestion = `焦点问题：${result.focusQuestion}`;
+            
+            // 将三元组转换为概念图数据
+            console.log('开始将三元组转换为概念图数据...');
+            const conceptData = window.convertTriplesToConceptData(result.triples);
+            console.log('概念图数据转换完成:', conceptData);
+            
+            const graphData = window.convertToD3Format(conceptData);
+            console.log('D3格式数据转换完成:', graphData);
+            
+            // 渲染概念图
+            displayConceptMap(graphData);
+            
+            // 隐藏加载状态
+            hideLoadingState();
+            
+            showMessage('概念图生成完成！', 'success');
+            isGenerating = false;
+        };
+        
+        const onError = (error) => {
+            console.error('❌ 从图片生成概念图失败:', error);
+            
+            // 显示错误信息
+            if (window.aiIntroText) {
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 生成失败</h4>
+                        <p style="color: #666; margin: 10px 0;">${error.message || '未知错误'}</p>
+                        <p style="color: #999; font-size: 14px; margin-top: 15px;">请检查：</p>
+                        <ul style="color: #999; font-size: 14px; margin: 5px 0; padding-left: 20px;">
+                            <li>后端服务是否正常运行</li>
+                            <li>API密钥是否配置正确</li>
+                            <li>网络连接是否正常</li>
+                            <li>图片是否包含可识别的文字内容</li>
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            // 更新流程状态
+            if (window.processText) {
+                window.processText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #e74c3c; margin-bottom: 10px;">🖼️ 从图片生成概念图</h4>
+                        <p style="margin: 5px 0;"><strong>当前操作：</strong>生成失败</p>
+                        <p style="margin: 5px 0;"><strong>文件名：</strong>${fileName}</p>
+                        <p style="margin: 5px 0; color: #e74c3c;">❌ ${error.message || '生成失败'}</p>
+                    </div>
+                `;
+            }
+            
+            hideLoadingState();
+            showMessage('从图片生成概念图失败: ' + (error.message || '未知错误'), 'error');
+            isGenerating = false;
+        };
+        
+        // 调用服务生成概念图
+        await imageService.generate(imageData, onChunk, onComplete, onError);
+        
+    } catch (error) {
+        console.error('❌ 调用图片生成概念图服务时发生错误:', error);
+        
+        // 显示错误信息
+        if (window.aiIntroText) {
+            window.aiIntroText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 系统错误</h4>
+                    <p style="color: #666; margin: 10px 0;">${error.message}</p>
+                    <p style="color: #999; font-size: 14px; margin-top: 15px;">请确保后端服务正常运行。</p>
+                </div>
+            `;
+        }
+        
+        hideLoadingState();
+        showMessage('系统错误: ' + error.message, 'error');
+        isGenerating = false;
+    }
+}
+
+async function analyzeUploadedConceptMap(imageData, fileName) {
+    console.log('开始调用概念图评价API...');
+    
+    try {
+        // 检查评价服务是否可用
+        if (!window.ConceptMapEvaluationService) {
+            throw new Error('概念图评价服务未加载');
+        }
+        
+        // 获取API基础URL（正确方式）
+        let apiBaseUrl = 'http://localhost:5000/api'; // 默认值
+        
+        if (window.llmManager && window.llmManager.config && window.llmManager.config.API_BASE_URL) {
+            apiBaseUrl = window.llmManager.config.API_BASE_URL;
+        } else if (window.portChecker) {
+            // 从 portChecker 获取当前端口
+            const currentPort = window.portChecker.getCurrentPort();
+            apiBaseUrl = `http://localhost:${currentPort}/api`;
+        }
+        
+        console.log('📍 使用API地址:', apiBaseUrl);
+        
+        // 创建评价服务实例
+        const evaluationService = new window.ConceptMapEvaluationService(apiBaseUrl);
+        
+        // 初始化评价结果容器
+        let analysisText = '';
+        
+        // 定义回调函数
+        const onChunk = (content) => {
+            // 累积内容
+            analysisText += content;
+            
+            // 实时更新显示
+            if (window.aiIntroText) {
+                // 将评价结果转换为HTML格式（保留换行和格式）
+                const analysisHtml = analysisText
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // 粗体
+                    .replace(/\n\n/g, '</p><p>')  // 段落
+                    .replace(/\n/g, '<br>');  // 换行
+                
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">🤖 AI评价分析结果 <span style="color: #28a745; font-size: 14px;">⚡ 生成中...</span></h4>
+                        <div style="line-height: 1.8; color: #333;">
+                            <p>${analysisHtml}</p>
+                        </div>
+                        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #999;">
+                            <p>评价模型：阿里云百炼 qwen3-vl-plus（流式输出）</p>
+                            <p>文件名：${fileName}</p>
+                        </div>
+                    </div>
+                `;
+            }
+        };
+        
+        const onComplete = () => {
+            console.log('✅ 概念图评价成功（流式）');
+            
+            // 更新流程状态
+            if (window.processText) {
+                window.processText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 10px;">📤 概念图评价流程</h4>
+                        <p style="margin: 5px 0;"><strong>当前操作：</strong>AI评价分析完成</p>
+                        <p style="margin: 5px 0;"><strong>文件名：</strong>${fileName}</p>
+                        <p style="margin: 5px 0; color: #28a745;">✅ 评价分析已完成，请查看下方结果</p>
+                    </div>
+                `;
+            }
+            
+            // 显示最终结果（移除"生成中"标识）
+            if (window.aiIntroText) {
+                const analysisHtml = analysisText
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // 粗体
+                    .replace(/\n\n/g, '</p><p>')  // 段落
+                    .replace(/\n/g, '<br>');  // 换行
+                
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">🤖 AI评价分析结果</h4>
+                        <div style="line-height: 1.8; color: #333;">
+                            <p>${analysisHtml}</p>
+                        </div>
+                        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #999;">
+                            <p>评价模型：阿里云百炼 qwen3-vl-plus</p>
+                            <p>文件名：${fileName}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            showMessage('概念图评价完成', 'success');
+        };
+        
+        const onError = (error) => {
+            console.error('❌ 概念图评价失败:', error);
+            
+            // 显示错误信息
+            if (window.aiIntroText) {
+                window.aiIntroText.innerHTML = `
+                    <div style="padding: 15px;">
+                        <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 评价失败</h4>
+                        <p style="color: #666; margin: 10px 0;">${error || '未知错误'}</p>
+                        <p style="color: #999; font-size: 14px; margin-top: 15px;">请检查：</p>
+                        <ul style="color: #999; font-size: 14px; margin: 5px 0; padding-left: 20px;">
+                            <li>后端服务是否正常运行</li>
+                            <li>API密钥是否配置正确</li>
+                            <li>网络连接是否正常</li>
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            showMessage('概念图评价失败: ' + error, 'error');
+        };
+        
+        // 调用流式评价API
+        await evaluationService.streamAnalyze(imageData, onChunk, onComplete, onError);
+        
+    } catch (error) {
+        console.error('❌ 调用评价服务时发生错误:', error);
+        
+        // 显示错误信息
+        if (window.aiIntroText) {
+            window.aiIntroText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 系统错误</h4>
+                    <p style="color: #666; margin: 10px 0;">${error.message}</p>
+                    <p style="color: #999; font-size: 14px; margin-top: 15px;">请确保后端服务正常运行。</p>
+                </div>
+            `;
+        }
+        
+        showMessage('系统错误: ' + error.message, 'error');
+    }
+}
+
+function resetView() {
+    // 显示确认弹窗
+    if (!confirm('你确定要重置视图吗？未保存的内容将全部被清除')) {
+        return;
+    }
+    
+    // 清除所有生成的内容
+    currentGraphData = null;
+    window.currentGraphData = null;
+    
+    // 显示占位符
+    window.graphPlaceholder.style.display = 'flex';
+    
+    // 隐藏概念图展示区域
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (conceptMapDisplay) {
+        conceptMapDisplay.style.display = 'none';
+    }
+    
+    // 保持编辑工具栏可见
+    if (window.editToolbar) {
+        window.editToolbar.style.display = 'grid';
+    }
+    
+    // 取消节点选中状态
+    deselectNode();
+    
+    // 清空输入框
+    if (window.keywordInput) {
+        window.keywordInput.value = '';
+    }
+    if (window.descriptionTextarea) {
+        window.descriptionTextarea.value = '';
+    }
+    
+    // 清空AI介绍文字
+    const aiIntroText = document.getElementById('aiIntroText');
+    if (aiIntroText) {
+        aiIntroText.innerHTML = '';
+        aiIntroText.className = 'intro-text';
+    }
+    
+    // 恢复SVG画布（如果之前被上传图片替换了）
+    const graphCanvas = document.querySelector('.graph-canvas');
+    let svg = document.querySelector('.concept-graph');
+    
+    if (!svg && graphCanvas) {
+        // SVG不存在，说明之前被上传图片替换了，需要重新创建
+        console.log('检测到SVG被替换，正在恢复SVG画布...');
+        graphCanvas.innerHTML = '';
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '700');
+        svg.setAttribute('class', 'concept-graph');
+        svg.setAttribute('viewBox', '0 0 1600 700');
+        graphCanvas.appendChild(svg);
+    }
+    
+    // 清空SVG画布内容
+    if (svg) {
+        while (svg.firstChild) {
+            svg.removeChild(svg.firstChild);
+        }
+        
+        // 默认显示文字
+        const defaultText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        defaultText.setAttribute('x', '400');
+        defaultText.setAttribute('y', '300');
+        defaultText.setAttribute('text-anchor', 'middle');
+        defaultText.setAttribute('dominant-baseline', 'middle');
+        defaultText.setAttribute('font-size', '16');
+        defaultText.setAttribute('fill', '#666');
+        defaultText.textContent = '概念图将在这里显示';
+        svg.appendChild(defaultText);
+    }
+    
+    // 清除焦点问题
+    window.focusQuestion = null;
+    
+    // 禁用导出按钮
+    if (window.exportBtn) {
+        window.exportBtn.disabled = true;
+    }
+    
+    // 重置状态栏
+    updateStatusBar({ nodes: [], links: [] });
+    
+    // 清空历史记录
+    clearHistory();
+    
+    // 重置所有相关状态
+    selectedNodeId = null;
+    selectedLinkId = null;
+    isDragging = false;
+    isLinkCreationMode = false;
+    linkSourceNodeId = null;
+    linkTargetNodeId = null;
+    isGenerating = false;
+    
+    // 重置生成按钮状态
+    resetGenerateButtons();
+    
+    // 重置全局调整大小状态
+    if (window.isResizing !== undefined) {
+        window.isResizing = false;
+    }
+    if (window.resizeStartX !== undefined) {
+        window.resizeStartX = 0;
+    }
+    if (window.resizeStartY !== undefined) {
+        window.resizeStartY = 0;
+    }
+    if (window.originalWidth !== undefined) {
+        window.originalWidth = 0;
+    }
+    if (window.originalHeight !== undefined) {
+        window.originalHeight = 0;
+    }
+    
+    // 重置虚拟连接线状态
+    if (window.virtualLine) {
+        window.virtualLine = null;
+    }
+    
+    // 移除可能存在的虚拟连接线
+    const virtualLines = document.querySelectorAll('.virtual-connection-line');
+    virtualLines.forEach(line => line.remove());
+    
+    // 移除可能存在的输入框
+    const floatingInputs = document.querySelectorAll('input[style*="position: fixed"], input[style*="position: absolute"]');
+    floatingInputs.forEach(input => {
+        if (input.parentNode) {
+            input.parentNode.removeChild(input);
+        }
+    });
+    
+    // 移除可能存在的控制手柄
+    const nodeHandles = document.querySelectorAll('.node-handle');
+    nodeHandles.forEach(handle => handle.remove());
+    
+    showMessage('视图已重置，所有内容已清除，您可以重新开始创建概念图', 'success');
+}
+
+//=============================================================================
+// 概念图生成函数
+//=============================================================================
+
+/**
+ * 重置生成按钮状态
+ */
+function resetGenerateButtons() {
+    if (window.keywordBtn) {
+        window.keywordBtn.classList.remove('loading');
+        window.keywordBtn.textContent = '生成';
+        window.keywordBtn.disabled = false;
+    }
+    if (window.descriptionBtn) {
+        window.descriptionBtn.classList.remove('loading');
+        window.descriptionBtn.textContent = '分析生成';
+        window.descriptionBtn.disabled = false;
+    }
+}
+
+async function generateConceptMapWithLLM(type, data) {
+    console.log('generateConceptMapWithLLM函数被调用，类型:', type, '数据:', data);
+    
+    if (isGenerating) {
+        console.log('正在生成中，忽略重复请求');
+        return;
+    }
+    
+    isGenerating = true;
+    console.log('开始生成概念图流程...');
+    
+    // 清除之前的概念图内容
+    console.log('清除之前的概念图内容...');
+    clearPreviousConceptMap();
+    
+    // 清除之前的步骤用时记录
+    window.stepDurations = {};
+    
+    // 记录总开始时间
+    const totalStartTime = performance.now();
+    
+    try {
+        // 先显示概念图展示区域
+        const conceptMapDisplay = document.querySelector('.concept-map-display');
+        conceptMapDisplay.style.display = 'flex';
+        
+        // 隐藏占位符
+        graphPlaceholder.style.display = 'none';
+        
+        // 显示加载动画
+        showLoadingAnimation();
+        
+        // 显示内容加载状态
+        showContentLoadingState(type, data);
+        
+        // 生成焦点问题
+        generateFocusQuestion(type, data);
+        
+        // 针对焦点问题模式，使用4步流程
+        if (type === 'keyword') {
+            // === 步骤1：生成介绍文本（流式输出） ===
+            const step1Start = performance.now();
+            updateProcessStatus(1, 'active', null, 'keyword');
+            
+            // 清空并准备文本内容展示区域
+            const textDisplayArea = window.aiIntroText;
+            if (textDisplayArea) {
+                textDisplayArea.innerHTML = '<div class="streaming-text" style="padding: 10px; line-height: 1.8; color: #333; font-size: 14px;"></div>';
+            }
+            
+            const streamingDiv = textDisplayArea ? textDisplayArea.querySelector('.streaming-text') : null;
+            let introText = '';
+            
+            console.log('准备开始流式生成介绍文本，显示区域:', textDisplayArea);
+            
+            // 调用流式生成介绍文本
+            const introResult = await window.llmManager.generateIntroduction(
+                data.keyword,
+                (chunk) => {
+                    // 实时显示生成的文本
+                    introText += chunk;
+                    if (streamingDiv) {
+                        streamingDiv.textContent = introText;
+                    }
+                }
+            );
+            
+            console.log('==================== 步骤1完成检查 ====================');
+            console.log('流式文本生成完成，总字数:', introText.length);
+            console.log('introResult对象:', introResult);
+            console.log('introResult.success:', introResult?.success);
+            console.log('introResult.text:', introResult?.text ? '存在，长度:' + introResult.text.length : '不存在');
+            console.log('=========================================================');
+            
+            const step1Duration = ((performance.now() - step1Start) / 1000).toFixed(2) + 's';
+            
+            if (!introResult) {
+                console.error('❌ introResult为null或undefined');
+                updateProcessStatus(1, 'error', null, 'keyword');
+                showMessage('文本生成返回结果为空', 'warning');
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            if (!introResult.success) {
+                console.error('❌ introResult.success为false，introResult:', introResult);
+                updateProcessStatus(1, 'error', null, 'keyword');
+                showMessage(introResult?.message || '文本生成失败', 'warning');
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            if (!introResult.text || introResult.text.length === 0) {
+                console.error('❌ 生成的文本为空');
+                updateProcessStatus(1, 'error', null, 'keyword');
+                showMessage('生成的文本为空，请重试', 'warning');
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            console.log('✅ 介绍文本生成成功，文本长度:', introResult.text.length);
+            console.log('准备进入步骤2：提取三元组');
+            updateProcessStatus(1, 'completed', step1Duration, 'keyword');
+            
+            // 等待一小段时间，确保第一次流式连接完全释放
+            console.log('⏳ 等待连接清理...');
+            await new Promise(resolve => setTimeout(resolve, 300));
+            console.log('✅ 连接清理完成，开始步骤2');
+            
+            // === 步骤2：提取三元组 ===
+            const step2Start = performance.now();
+            updateProcessStatus(2, 'active', null, 'keyword');
+            
+            console.log('=== 步骤2开始：提取三元组 ===');
+            console.log('开始从介绍文本提取三元组，文本长度:', introResult.text.length);
+            console.log('文本前100字:', introResult.text.substring(0, 100));
+            console.log('window.llmManager存在:', !!window.llmManager);
+            console.log('extractTriples方法存在:', typeof window.llmManager?.extractTriples);
+            
+            // 在文本展示区域显示处理状态
+            if (streamingDiv) {
+                streamingDiv.innerHTML = introText + '<br><br><div style="color: #666; font-style: italic;">正在提取三元组...</div>';
+            }
+            
+            let tripleResult;
+            try {
+                console.log('准备调用extractTriples...');
+                tripleResult = await window.llmManager.extractTriples(introResult.text);
+                console.log('extractTriples调用完成');
+                console.log('三元组提取返回结果:', tripleResult);
+            } catch (error) {
+                console.error('三元组提取异常:', error);
+                updateProcessStatus(2, 'error', null, 'keyword');
+                showMessage('三元组提取异常：' + error.message, 'error');
+                if (streamingDiv) {
+                    streamingDiv.innerHTML = introText + '<br><br><div style="color: red;">三元组提取异常: ' + error.message + '</div>';
+                }
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            const step2Duration = ((performance.now() - step2Start) / 1000).toFixed(2) + 's';
+            
+            if (!tripleResult || !tripleResult.success || !tripleResult.triples || tripleResult.triples.length === 0) {
+                console.error('❌ 三元组提取失败，详细信息:', tripleResult);
+                updateProcessStatus(2, 'error', null, 'keyword');
+                const errorMsg = tripleResult?.message || tripleResult?.error || '未知错误';
+                showMessage('三元组提取失败：' + errorMsg, 'error');
+                if (streamingDiv) {
+                    let errorHtml = introText + '<br><br><div style="color: #dc3545; background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #dc3545;">';
+                    errorHtml += '<strong>❌ 三元组提取失败</strong><br><br>';
+                    errorHtml += '<div style="color: #333;">' + errorMsg + '</div>';
+                    
+                    // 如果有原始响应，显示出来供调试
+                    if (tripleResult?.rawResponse) {
+                        errorHtml += '<br><details style="cursor: pointer;"><summary style="color: #666;">查看AI原始响应（用于调试）</summary>';
+                        const escapedResponse = tripleResult.rawResponse
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;');
+                        errorHtml += '<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow: auto; max-height: 200px; font-size: 12px;">' + 
+                                     escapedResponse + '</pre>';
+                        errorHtml += '</details>';
+                    }
+                    
+                    errorHtml += '</div>';
+                    streamingDiv.innerHTML = errorHtml;
+                }
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            console.log('三元组提取成功，数量:', tripleResult.triples.length, '三元组列表:', tripleResult.triples);
+            updateProcessStatus(2, 'completed', step2Duration, 'keyword');
+            
+            // 恢复原始介绍文本，移除"正在提取三元组..."的提示
+            if (streamingDiv) {
+                streamingDiv.textContent = introText;
+            }
+            
+            // === 步骤3：概念图的生成（数据处理+渲染） ===
+            const step3Start = performance.now();
+            updateProcessStatus(3, 'active', null, 'keyword');
+            
+            // 将三元组转换为概念图数据
+            console.log('开始将三元组转换为概念图数据...');
+            const conceptData = window.convertTriplesToConceptData(tripleResult.triples);
+            console.log('概念图数据转换完成:', conceptData);
+            
+            const graphData = window.convertToD3Format(conceptData);
+            console.log('D3格式数据转换完成:', graphData);
+            
+            // 渲染概念图
+            displayConceptMap(graphData);
+            
+            // 更新显示信息
+            updateGenerationInfo(type, data, conceptData, introResult.text, '');
+            
+            const step3Duration = ((performance.now() - step3Start) / 1000).toFixed(2) + 's';
+            updateProcessStatus(3, 'completed', step3Duration, 'keyword');
+            
+            // === 步骤4：完成 ===
+            const totalDuration = ((performance.now() - totalStartTime) / 1000).toFixed(2) + 's';
+            updateProcessStatus(4, 'completed', totalDuration, 'keyword');
+            
+            showMessage('概念图生成完成！', 'success');
+            
+        } else {
+            // 文本分析模式，流程：焦点问题分析 → 三元组提取 → 概念图渲染（4步）
+            
+            // === 步骤1：焦点问题分析 ===
+            const step1Start = performance.now();
+            updateProcessStatus(1, 'active', null, 'description');
+            
+            console.log('=== 步骤1开始：焦点问题分析 ===');
+            console.log('输入文本长度:', data.description.length);
+            console.log('输入文本前100字:', data.description.substring(0, 100));
+            
+            let focusQuestionResult;
+            try {
+                console.log('准备调用extractFocusQuestion...');
+                focusQuestionResult = await window.llmManager.extractFocusQuestion(data.description);
+                console.log('extractFocusQuestion调用完成');
+                console.log('焦点问题提取返回结果:', focusQuestionResult);
+            } catch (error) {
+                console.error('焦点问题提取异常:', error);
+                updateProcessStatus(1, 'error', null, 'description');
+                showMessage('焦点问题提取异常：' + error.message, 'error');
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            const step1Duration = ((performance.now() - step1Start) / 1000).toFixed(2) + 's';
+            
+            if (!focusQuestionResult || !focusQuestionResult.success || !focusQuestionResult.focusQuestion) {
+                console.error('❌ 焦点问题提取失败，详细信息:', focusQuestionResult);
+                updateProcessStatus(1, 'error', null, 'description');
+                const errorMsg = focusQuestionResult?.message || focusQuestionResult?.error || '未知错误';
+                showMessage('焦点问题提取失败：' + errorMsg, 'error');
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            const extractedFocusQuestion = focusQuestionResult.focusQuestion;
+            console.log('✅ 焦点问题提取成功:', extractedFocusQuestion);
+            
+            // 更新全局焦点问题变量（用于显示和导出）
+            window.focusQuestion = `焦点问题：${extractedFocusQuestion}`;
+            
+            updateProcessStatus(1, 'completed', step1Duration, 'description');
+            
+            // 等待一小段时间
+            console.log('⏳ 等待连接清理...');
+            await new Promise(resolve => setTimeout(resolve, 300));
+            console.log('✅ 连接清理完成，开始步骤2');
+            
+            // 准备文本内容展示区域，显示用户输入的原始文本
+            const textDisplayArea = window.aiIntroText;
+            const streamingDiv = textDisplayArea ? textDisplayArea.querySelector('.streaming-text') : null;
+            const userInputText = data.description;
+            
+            if (textDisplayArea) {
+                textDisplayArea.innerHTML = '<div class="streaming-text" style="padding: 10px; line-height: 1.8; color: #333; font-size: 14px;"></div>';
+                const newStreamingDiv = textDisplayArea.querySelector('.streaming-text');
+                if (newStreamingDiv) {
+                    newStreamingDiv.textContent = userInputText;
+                }
+            }
+            
+            // === 步骤2：提取三元组（直接从用户输入的文本） ===
+            const step2Start = performance.now();
+            updateProcessStatus(2, 'active', null, 'description');
+            
+            console.log('=== 步骤2开始：提取三元组 ===');
+            console.log('开始从用户输入文本提取三元组，文本长度:', userInputText.length);
+            console.log('文本前100字:', userInputText.substring(0, 100));
+            
+            // 在文本展示区域显示处理状态
+            const newStreamingDiv = textDisplayArea ? textDisplayArea.querySelector('.streaming-text') : null;
+            if (newStreamingDiv) {
+                newStreamingDiv.innerHTML = userInputText + '<br><br><div style="color: #666; font-style: italic;">正在提取三元组...</div>';
+            }
+            
+            let tripleResult;
+            try {
+                console.log('准备调用extractTriples...');
+                tripleResult = await window.llmManager.extractTriples(userInputText);
+                console.log('extractTriples调用完成');
+                console.log('三元组提取返回结果:', tripleResult);
+            } catch (error) {
+                console.error('三元组提取异常:', error);
+                updateProcessStatus(2, 'error', null, 'description');
+                showMessage('三元组提取异常：' + error.message, 'error');
+                if (newStreamingDiv) {
+                    newStreamingDiv.innerHTML = userInputText + '<br><br><div style="color: red;">三元组提取异常: ' + error.message + '</div>';
+                }
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            const step2Duration = ((performance.now() - step2Start) / 1000).toFixed(2) + 's';
+            
+            if (!tripleResult || !tripleResult.success || !tripleResult.triples || tripleResult.triples.length === 0) {
+                console.error('❌ 三元组提取失败，详细信息:', tripleResult);
+                updateProcessStatus(2, 'error', null, 'description');
+                const errorMsg = tripleResult?.message || tripleResult?.error || '未知错误';
+                showMessage('三元组提取失败：' + errorMsg, 'error');
+                if (newStreamingDiv) {
+                    let errorHtml = userInputText + '<br><br><div style="color: #dc3545; background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #dc3545;">';
+                    errorHtml += '<strong>❌ 三元组提取失败</strong><br><br>';
+                    errorHtml += '<div style="color: #333;">' + errorMsg + '</div>';
+                    
+                    // 如果有原始响应，显示出来供调试
+                    if (tripleResult?.rawResponse) {
+                        errorHtml += '<br><details style="cursor: pointer;"><summary style="color: #666;">查看AI原始响应（用于调试）</summary>';
+                        const escapedResponse = tripleResult.rawResponse
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;');
+                        errorHtml += '<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow: auto; max-height: 200px; font-size: 12px;">' + 
+                                     escapedResponse + '</pre>';
+                        errorHtml += '</details>';
+                    }
+                    
+                    errorHtml += '</div>';
+                    newStreamingDiv.innerHTML = errorHtml;
+                }
+                isGenerating = false;
+                resetGenerateButtons();
+                return;
+            }
+            
+            console.log('三元组提取成功，数量:', tripleResult.triples.length, '三元组列表:', tripleResult.triples);
+            updateProcessStatus(2, 'completed', step2Duration, 'description');
+            
+            // 恢复原始文本，移除"正在提取三元组..."的提示
+            if (newStreamingDiv) {
+                newStreamingDiv.textContent = userInputText;
+            }
+            
+            // === 步骤3：概念图的生成（数据处理+渲染） ===
+            const step3Start = performance.now();
+            updateProcessStatus(3, 'active', null, 'description');
+            
+            // 将三元组转换为概念图数据
+            console.log('开始将三元组转换为概念图数据...');
+            const conceptData = window.convertTriplesToConceptData(tripleResult.triples);
+            console.log('概念图数据转换完成:', conceptData);
+            
+            const graphData = window.convertToD3Format(conceptData);
+            console.log('D3格式数据转换完成:', graphData);
+            
+            // 渲染概念图
+            displayConceptMap(graphData);
+            
+            // 更新显示信息（使用用户输入的文本）
+            updateGenerationInfo('description', data, conceptData, userInputText, '');
+            
+            const step3Duration = ((performance.now() - step3Start) / 1000).toFixed(2) + 's';
+            updateProcessStatus(3, 'completed', step3Duration, 'description');
+            
+            // === 步骤4：完成 ===
+            const totalDuration = ((performance.now() - totalStartTime) / 1000).toFixed(2) + 's';
+            updateProcessStatus(4, 'completed', totalDuration, 'description');
+            
+            showMessage('概念图生成完成！', 'success');
+        }
+        
+    } catch (error) {
+        console.error('生成过程出错:', error);
+        updateProcessStatus(1, 'error'); // 标记为概念图文本内容生成阶段错误
+        showMessage('生成失败，请稍后重试', 'warning');
+    } finally {
+        isGenerating = false;
+        hideLoadingState();
+        resetGenerateButtons();
+    }
+}
+
+function generateFocusQuestion(type, data) {
+    let focusQuestion = '';
+    if (type === 'keyword') {
+        // 焦点问题模式
+        const keyword = data.keyword;
+        // 完整显示焦点问题，不使用省略号
+        focusQuestion = `焦点问题：${keyword}是什么？`;
+    } else {
+        // 文本分析模式
+        const textContent = data.description;
+        // 提取核心概念
+        let coreConcept = '';
+        if (textContent.length <= 6) {
+            coreConcept = textContent;
+        } else {
+            // 尝试找到句子的主语或核心名词
+            const sentences = textContent.split(/[。！？，；]/);
+            const firstSentence = sentences[0].trim();
+            if (firstSentence.length <= 6) {
+                coreConcept = firstSentence;
+            } else {
+                // 提取前6个字符作为核心概念
+                coreConcept = firstSentence.substring(0, 6) + '...';
+            }
+        }
+        focusQuestion = `焦点问题：${coreConcept}`;
+    }
+    
+    // 将焦点问题存储到全局变量中
+    window.focusQuestion = focusQuestion;
+}
+
+function clearPreviousConceptMap() {
+    console.log('开始清除之前的概念图内容...');
+    
+    // 清空AI介绍文字
+    const aiIntroText = document.getElementById('aiIntroText');
+    if (aiIntroText) {
+        aiIntroText.innerHTML = '';
+        aiIntroText.className = 'intro-text';
+    }
+    
+    // 恢复SVG画布（如果之前被上传图片替换了）
+    const graphCanvas = document.querySelector('.graph-canvas');
+    let svg = document.querySelector('.concept-graph');
+    
+    if (!svg && graphCanvas) {
+        // SVG不存在，说明之前被上传图片替换了，需要重新创建
+        console.log('检测到SVG被替换，正在恢复SVG画布...');
+        graphCanvas.innerHTML = '';
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '700');
+        svg.setAttribute('class', 'concept-graph');
+        svg.setAttribute('viewBox', '0 0 1600 700');
+        graphCanvas.appendChild(svg);
+    } else if (svg) {
+        // SVG存在，只需清空内容
+        while (svg.firstChild) {
+            svg.removeChild(svg.firstChild);
+        }
+    }
+    
+    // 清除焦点问题
+    window.focusQuestion = null;
+    
+    // 清空当前图数据
+    currentGraphData = { nodes: [], links: [] };
+    
+    // 重置状态栏
+    updateStatusBar({ nodes: [], links: [] });
+    
+    // 清空历史记录
+    clearHistory();
+    
+    // 重置所有相关状态
+    selectedNodeId = null;
+    selectedLinkId = null;
+    isDragging = false;
+    isLinkCreationMode = false;
+    linkSourceNodeId = null;
+    linkTargetNodeId = null;
+    
+    console.log('概念图内容清除完成');
+}
+
+//=============================================================================
+// DOM初始化和事件绑定
+//=============================================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM加载完成，开始获取元素...');
+    
+    // 初始化大模型交互模块
+    if (window.llmManager) {
+        window.llmManager.init();
+        console.log('大模型交互模块已初始化');
+    } else {
+        console.error('大模型交互模块未找到');
+    }
+    
+    // 获取DOM元素并设为全局变量（让所有模块都能访问）
+    window.keywordInput = document.getElementById('keyword');
+    window.descriptionTextarea = document.getElementById('description');
+    window.keywordBtn = document.getElementById('generateKeywordBtn');
+    window.descriptionBtn = document.getElementById('generateDescriptionBtn');
+    window.uploadImageInput = document.getElementById('uploadImage');
+    window.uploadImageBtn = document.getElementById('uploadImageBtn');
+    window.uploadImageForGenerationInput = document.getElementById('uploadImageForGeneration');
+    window.uploadImageForGenerationBtn = document.getElementById('uploadImageForGenerationBtn');
+    window.resetBtn = document.getElementById('resetViewBtn');
+    window.exportBtn = document.getElementById('exportImageBtn');
+    window.graphPlaceholder = document.querySelector('.graph-placeholder');
+    window.aiIntroText = document.getElementById('aiIntroText');
+    
+    console.log('基本元素获取结果:');
+    console.log('keywordInput:', window.keywordInput);
+    console.log('descriptionTextarea:', window.descriptionTextarea);
+    console.log('keywordBtn:', window.keywordBtn);
+    console.log('descriptionBtn:', window.descriptionBtn);
+    console.log('resetBtn:', window.resetBtn);
+    console.log('exportBtn:', window.exportBtn);
+    console.log('graphPlaceholder:', window.graphPlaceholder);
+    
+    // 编辑工具栏元素（全局）
+    window.editToolbar = document.querySelector('.edit-toolbar');
+    window.addNodeBtn = document.getElementById('addNodeBtn');
+    window.deleteNodeBtn = document.getElementById('deleteNodeBtn');
+    window.editNodeBtn = document.getElementById('editNodeBtn');
+    window.addLinkBtn = document.getElementById('addLinkBtn');
+    window.deleteLinkBtn = document.getElementById('deleteLinkBtn');
+    window.editLinkBtn = document.getElementById('editLinkBtn');
+    window.layoutSelect = document.getElementById('layoutSelect');
+    window.autoLayoutBtn = document.getElementById('autoLayoutBtn');
+    
+    console.log('编辑工具栏元素获取结果:');
+    console.log('editToolbar:', window.editToolbar);
+    console.log('addNodeBtn:', window.addNodeBtn);
+    console.log('deleteNodeBtn:', window.deleteNodeBtn);
+    console.log('editNodeBtn:', window.editNodeBtn);
+    console.log('addLinkBtn:', window.addLinkBtn);
+    console.log('deleteLinkBtn:', window.deleteLinkBtn);
+    console.log('editLinkBtn:', window.editLinkBtn);
+    console.log('layoutSelect:', window.layoutSelect);
+    console.log('autoLayoutBtn:', window.autoLayoutBtn);
+    
+    // 当前流程元素（全局）
+    window.processText = document.getElementById('processText');
+    
+    console.log('当前流程元素获取结果:');
+    console.log('processText:', window.processText);
+    
+    // 状态栏元素（全局）
+    window.nodeCountSpan = document.getElementById('nodeCount');
+    window.linkCountSpan = document.getElementById('linkCount');
+    window.downloadBtn = document.getElementById('downloadBtn');
+    window.loadBtn = document.getElementById('loadBtn');
+    window.undoBtn = document.getElementById('undoBtn');
+    window.redoBtn = document.getElementById('redoBtn');
+    
+    console.log('状态栏元素获取结果:');
+    console.log('nodeCountSpan:', window.nodeCountSpan);
+    console.log('linkCountSpan:', window.linkCountSpan);
+    console.log('downloadBtn:', window.downloadBtn);
+    console.log('loadBtn:', window.loadBtn);
+    console.log('undoBtn:', window.undoBtn);
+    console.log('redoBtn:', window.redoBtn);
+
+    //=============================================================================
+    // 事件监听器绑定
+    //=============================================================================
+    
+    // 焦点问题生成概念图事件
+    if (window.keywordBtn) {
+        window.keywordBtn.addEventListener('click', function() {
+            console.log('焦点问题生成按钮被点击');
+            const keyword = window.keywordInput.value.trim();
+            if (!keyword) {
+                showMessage('请输入焦点问题', 'warning');
+                return;
+            }
+            
+            // 设置按钮加载状态
+            window.keywordBtn.classList.add('loading');
+            window.keywordBtn.textContent = '生成中...';
+            window.keywordBtn.disabled = true;
+            
+            console.log('开始生成概念图，焦点问题:', keyword);
+            generateConceptMapWithLLM('keyword', { keyword: keyword });
+        });
+    }
+
+    // 文本分析生成概念图事件
+    if (window.descriptionBtn) {
+        window.descriptionBtn.addEventListener('click', function() {
+            console.log('文本分析按钮被点击');
+            const description = window.descriptionTextarea.value.trim();
+            if (!description) {
+                showMessage('请输入描述文本', 'warning');
+                return;
+            }
+            
+            // 设置按钮加载状态
+            window.descriptionBtn.classList.add('loading');
+            window.descriptionBtn.textContent = '生成中...';
+            window.descriptionBtn.disabled = true;
+            
+            console.log('开始生成概念图，描述:', description);
+            generateConceptMapWithLLM('description', { description: description });
+        });
+    }
+
+    // 从图片生成概念图按钮事件
+    if (window.uploadImageForGenerationBtn && window.uploadImageForGenerationInput) {
+        // 点击上传按钮触发文件选择
+        window.uploadImageForGenerationBtn.addEventListener('click', function() {
+            console.log('从图片生成概念图按钮被点击');
+            window.uploadImageForGenerationInput.click();
+        });
+        
+        // 文件选择后的处理
+        window.uploadImageForGenerationInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                console.log('选择的文件:', file.name);
+                
+                // 验证文件类型
+                if (!file.type.startsWith('image/')) {
+                    showMessage('请选择图片文件', 'warning');
+                    return;
+                }
+                
+                // 验证文件大小（限制为10MB）
+                if (file.size > 10 * 1024 * 1024) {
+                    showMessage('图片文件大小不能超过10MB', 'warning');
+                    return;
+                }
+                
+                showMessage('图片上传中，准备生成概念图...', 'info');
+                console.log('图片文件信息 - 名称:', file.name, '大小:', (file.size / 1024).toFixed(2) + 'KB', '类型:', file.type);
+                
+                // 读取并生成概念图
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    console.log('图片读取完成，开始生成概念图...');
+                    
+                    // 生成概念图
+                    generateConceptMapFromImage(e.target.result, file.name);
+                    
+                    // 清空文件输入框，允许重新上传同一文件
+                    window.uploadImageForGenerationInput.value = '';
+                };
+                reader.onerror = function() {
+                    showMessage('图片读取失败，请重试', 'error');
+                    // 清空文件输入框
+                    window.uploadImageForGenerationInput.value = '';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    // 上传图片按钮事件（用于概念图评价）
+    if (window.uploadImageBtn && window.uploadImageInput) {
+        // 点击上传按钮触发文件选择
+        window.uploadImageBtn.addEventListener('click', function() {
+            console.log('上传图片按钮被点击');
+            window.uploadImageInput.click();
+        });
+        
+        // 文件选择后的处理
+        window.uploadImageInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                console.log('选择的文件:', file.name);
+                
+                // 验证文件类型
+                if (!file.type.startsWith('image/')) {
+                    showMessage('请选择图片文件', 'warning');
+                    return;
+                }
+                
+                // 验证文件大小（限制为10MB）
+                if (file.size > 10 * 1024 * 1024) {
+                    showMessage('图片文件大小不能超过10MB', 'warning');
+                    return;
+                }
+                
+                showMessage('图片上传中...', 'info');
+                console.log('图片文件信息 - 名称:', file.name, '大小:', (file.size / 1024).toFixed(2) + 'KB', '类型:', file.type);
+                
+                // 读取并显示图片
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    console.log('图片读取完成，开始显示...');
+                    
+                    // 显示上传的图片
+                    displayUploadedImage(e.target.result, file.name);
+                    
+                    showMessage('图片上传成功: ' + file.name, 'success');
+                    
+                    // 清空文件输入框，允许重新上传同一文件
+                    window.uploadImageInput.value = '';
+                };
+                reader.onerror = function() {
+                    showMessage('图片读取失败，请重试', 'error');
+                    // 清空文件输入框
+                    window.uploadImageInput.value = '';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    // 重置视图按钮事件
+    if (window.resetBtn) {
+        window.resetBtn.addEventListener('click', function() {
+            console.log('重置视图按钮被点击');
+            resetView();
+        });
+    }
+
+    // 导出图片按钮事件
+    if (window.exportBtn) {
+        window.exportBtn.addEventListener('click', function() {
+            console.log('导出图片按钮被点击');
+            exportConceptMap();
+        });
+    }
+
+    // 编辑工具栏事件绑定
+    if (window.addNodeBtn) {
+        window.addNodeBtn.addEventListener('click', function() {
+            console.log('添加节点按钮被点击');
+            addNewNode();
+        });
+    }
+
+    if (window.deleteNodeBtn) {
+        window.deleteNodeBtn.addEventListener('click', function() {
+            console.log('删除节点按钮被点击');
+            deleteSelectedNode();
+        });
+    }
+
+    if (window.editNodeBtn) {
+        window.editNodeBtn.addEventListener('click', function() {
+            console.log('编辑节点按钮被点击');
+            editSelectedNode();
+        });
+    }
+
+    if (window.addLinkBtn) {
+        window.addLinkBtn.addEventListener('click', function() {
+            console.log('添加连线按钮被点击');
+            addNewLink();
+        });
+    }
+
+    if (window.deleteLinkBtn) {
+        window.deleteLinkBtn.addEventListener('click', function() {
+            console.log('删除连线按钮被点击');
+            deleteSelectedLink();
+        });
+    }
+
+    if (window.editLinkBtn) {
+        window.editLinkBtn.addEventListener('click', function() {
+            console.log('编辑连线按钮被点击');
+            editSelectedLink();
+        });
+    }
+
+    if (window.layoutSelect) {
+        window.layoutSelect.addEventListener('change', function() {
+            console.log('布局选择改变:', window.layoutSelect.value);
+            changeLayout(window.layoutSelect.value);
+        });
+    }
+
+    if (window.autoLayoutBtn) {
+        window.autoLayoutBtn.addEventListener('click', function() {
+            console.log('自动布局按钮被点击');
+            applyAutoLayout();
+        });
+    }
+
+    // 状态栏按钮事件
+    if (window.downloadBtn) {
+        window.downloadBtn.addEventListener('click', function() {
+            console.log('下载图片按钮被点击');
+            downloadConceptMapImage();
+        });
+    }
+
+    if (window.loadBtn) {
+        window.loadBtn.addEventListener('click', function() {
+            console.log('加载数据按钮被点击');
+            loadConceptMap();
+        });
+    }
+
+    if (window.undoBtn) {
+        window.undoBtn.addEventListener('click', function() {
+            console.log('撤销按钮被点击');
+            undoOperation();
+        });
+    }
+
+    if (window.redoBtn) {
+        window.redoBtn.addEventListener('click', function() {
+            console.log('重做按钮被点击');
+            redoOperation();
+        });
+    }
+
+    // 初始化页面
+    initializePage();
+});
+

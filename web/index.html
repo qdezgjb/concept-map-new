@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>概念图自动生成系统</title>
+    <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部标题 -->
+        <header class="header">
+            <h1>概念图自动生成系统</h1>
+            <p>基于AI的智能概念图生成与编辑平台</p>
+        </header>
+
+        <!-- 主要内容区域 -->
+        <main class="main-content">
+            <!-- 左侧功能选择区域 -->
+            <aside class="sidebar">
+                <div class="function-section">
+                    <h2>功能选择</h2>
+                    
+                    <!-- 功能1：焦点问题生成 -->
+                    <div class="function-card">
+                        <div class="function-header">
+                            <h3>🔍 焦点问题生成概念图</h3>
+                            <span class="function-desc">输入一个焦点问题，AI自动生成相关概念图</span>
+                        </div>
+                        <div class="function-content">
+                            <div class="input-group">
+                                <label for="keyword">焦点问题：</label>
+                                <input type="text" id="keyword" placeholder="请输入焦点问题" class="input-field">
+                            </div>
+                            <button class="btn btn-primary" id="generateKeywordBtn">生成概念图</button>
+                        </div>
+                    </div>
+
+                    <!-- 功能2：文本分析生成 -->
+                    <div class="function-card">
+                        <div class="function-header">
+                            <h3>📝 文本分析生成概念图</h3>
+                            <span class="function-desc">输入一段描述文字，AI分析并生成概念图</span>
+                        </div>
+                        <div class="function-content">
+                            <div class="input-group">
+                                <label for="description">描述文字：</label>
+                                <textarea id="description" placeholder="请输入要分析的文字内容" class="textarea-field" rows="4"></textarea>
+                            </div>
+                            <button class="btn btn-primary" id="generateDescriptionBtn">分析生成</button>
+                        </div>
+                    </div>
+
+                    <!-- 功能3：从图片生成概念图 -->
+                    <div class="function-card">
+                        <div class="function-header">
+                            <h3>🖼️ 从图片生成概念图</h3>
+                            <span class="function-desc">上传包含文字内容的图片，AI自动识别并生成概念图</span>
+                        </div>
+                        <div class="function-content">
+                            <div class="input-group">
+                                <label for="uploadImageForGeneration">上传图片：</label>
+                                <input type="file" id="uploadImageForGeneration" accept="image/*" class="file-input" style="display: none;">
+                                <button class="btn btn-primary" id="uploadImageForGenerationBtn">📤 上传并生成</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 功能4：概念图自动评价 -->
+                    <div class="function-card">
+                        <div class="function-header">
+                            <h3>⭐ 概念图自动评价</h3>
+                            <span class="function-desc">上传概念图图片，AI自动进行评价分析</span>
+                        </div>
+                        <div class="function-content">
+                            <div class="input-group">
+                                <label for="uploadImage">上传概念图：</label>
+                                <input type="file" id="uploadImage" accept="image/*" class="file-input" style="display: none;">
+                                <button class="btn btn-primary" id="uploadImageBtn">📤 上传图片</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 功能5：编辑功能说明 -->
+                    <div class="function-card">
+                        <div class="function-header">
+                            <h3>✏️ 交互式编辑</h3>
+                            <span class="function-desc">支持拖拽、编辑、下载等操作</span>
+                        </div>
+                        <div class="function-content">
+                            <ul class="feature-list">
+                                <li>拖拽移动节点位置</li>
+                                <li>编辑节点和连线内容</li>
+                                <li>添加/删除节点连线</li>
+                                <li>下载概念图图片（PNG格式）</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 右侧概念图展示区域 -->
+            <section class="content-area">
+                <div class="graph-container">
+                    <div class="graph-header">
+                        <h2>概念图展示区域</h2>
+                        <div class="graph-controls">
+                            <button class="btn btn-secondary" id="resetViewBtn">重置视图</button>
+                            <button class="btn btn-secondary" id="exportImageBtn">导出图片</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 编辑工具栏 -->
+                    <div class="edit-toolbar" style="display: grid;">
+                        <div class="toolbar-section">
+                            <h4>节点操作</h4>
+                            <button class="btn btn-sm btn-outline" id="addNodeBtn">➕ 添加节点</button>
+                            <button class="btn btn-sm btn-outline" id="deleteNodeBtn">➖ 删除节点</button>
+                            <button class="btn btn-sm btn-outline" id="editNodeBtn">✏️ 编辑节点</button>
+                        </div>
+                        <div class="toolbar-section">
+                            <h4>连线操作</h4>
+                            <button class="btn btn-sm btn-outline" id="addLinkBtn">🔗 添加连线</button>
+                            <button class="btn btn-sm btn-outline" id="deleteLinkBtn">❌ 删除连线</button>
+                            <button class="btn btn-sm btn-outline" id="editLinkBtn">✏️ 编辑连线</button>
+                        </div>
+                        <div class="toolbar-section">
+                            <h4>布局控制</h4>
+                            <select id="layoutSelect" class="select-field">
+                                <option value="hierarchical" selected>Sugiyama布局</option>
+                                <option value="force">力导向布局</option>
+                            </select>
+                            <button class="btn btn-sm btn-outline" id="autoLayoutBtn">🔄 自动布局</button>
+                        </div>
+                        <div class="toolbar-section">
+                            <h4>操作设置</h4>
+                            <button class="btn btn-sm btn-outline" id="undoBtn" disabled>↶ 撤销</button>
+                            <button class="btn btn-sm btn-outline" id="redoBtn" disabled>↷ 重做</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 概念图占位区域 -->
+                    <div class="graph-placeholder">
+                        <div class="placeholder-content">
+                            <div class="placeholder-icon">📊</div>
+                            <h3>开始创建&评价概念图</h3>
+                            <p>您可以选择以下方式：</p>
+                            <div class="creation-options">
+                                <p>1️⃣ <strong>AI生成</strong>：在左侧输入关键词或描述，让AI自动生成概念图</p>
+                                <p>2️⃣ <strong>手动创建</strong>：直接使用右侧工具栏添加节点和连线，创建自定义概念图</p>
+                                <p>3️⃣ <strong>概念图评价</strong>：上传已有的概念图图片，AI自动进行专业评价分析</p>
+                            </div>
+                            <div class="quick-start">
+                                <p><strong>快速开始：</strong>点击"➕ 添加节点"按钮开始创建您的第一个节点！</p>
+                            </div>
+                        </div>
+                    </div>
+
+                     <!-- 概念图展示区域（隐藏状态） -->
+                     <div class="concept-map-display" style="display: none;">
+                         <!-- 第一部分：当前流程 -->
+                         <div class="current-process">
+                             <div class="process-header">
+                                 <h4>当前流程</h4>
+                             </div>
+                             <div class="process-content">
+                                 <div id="processText" class="process-text">
+                                     <!-- 当前流程信息将在这里显示 -->
+                                 </div>
+                             </div>
+                         </div>
+                         
+                         <!-- 第二部分：概念图图形窗口 -->
+                         <div class="graph-window">
+                             <div class="graph-header">
+                                 <h4>概念图展示</h4>
+                             </div>
+                             <div class="graph-canvas">
+                                 <svg width="100%" height="700" class="concept-graph" viewBox="0 0 1600 700">
+                                     <!-- 这里将来会放置D3.js生成的概念图 -->
+                                     <!-- 默认显示文字 -->
+                                    <text x="800" y="300" text-anchor="middle" font-size="16" fill="#666">
+                                        概念图将在这里显示
+                                    </text>
+                                 </svg>
+                             </div>
+                         </div>
+                         
+                         <!-- 第三部分：文本内容展示 -->
+                         <div class="ai-introduction">
+                             <div class="intro-header">
+                                 <h4>文本内容展示</h4>
+                             </div>
+                             <div class="intro-content">
+                                 <div id="aiIntroText" class="intro-text">
+                                     <!-- AI生成的介绍文字将在这里显示 -->
+                                 </div>
+                             </div>
+                         </div>
+                     </div>
+                    
+                    <!-- 状态栏 -->
+                    <div class="status-bar">
+                        <div class="status-info">
+                            <span id="nodeCount">节点: 0</span>
+                            <span id="linkCount">连线: 0</span>
+                        </div>
+                        <div class="status-actions">
+                            <button class="btn btn-sm btn-outline" id="downloadBtn">📷 下载图片</button>
+                            <button class="btn btn-sm btn-outline" id="loadBtn">📂 加载数据</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 底部信息 -->
+        <footer class="footer">
+            <p>概念图自动生成系统 v1.0 | 基于D3.js + AI技术</p>
+        </footer>
+    </div>
+
+    <!-- 端口检查模块 -->
+    <script src="/web/port-checker.js"></script>
+    
+    <!-- 引入算法模块 - 按依赖顺序加载 -->
+    <script src="/algorithm/data-processing.js"></script>
+    <script src="/algorithm/sugiyama-layout.js"></script>
+    <script src="/algorithm/layout-algorithms.js"></script>
+    
+    <!-- 引入大模型交互模块 - 按依赖顺序加载 -->
+    <script src="/llm/introduction-service.js"></script>   <!-- 介绍文本生成服务（独立模块） -->
+    <script src="/llm/focus-question-service.js"></script> <!-- 焦点问题提取服务（独立模块）✨ NEW -->
+    <script src="/llm/image-concept-map-service.js"></script> <!-- 图片生成概念图服务（独立模块）✨ NEW -->
+    <script src="/llm/concept-map-evaluation-service.js"></script> <!-- 概念图评价服务（独立模块）✨ NEW -->
+    <script src="/llm/llm-manager.js"></script>            <!-- AI服务管理器（依赖上述服务） -->
+    
+    <!-- 引入整合后的功能模块 - 按依赖顺序加载 -->
+    <script src="/web/process-updater.js"></script> <!-- 流程状态更新模块 -->
+    <script src="/web/utilities.js"></script>   <!-- 工具和辅助功能：布局控制、连线路由、历史管理、导出功能 -->
+    <script src="/web/renderer.js"></script>    <!-- 渲染和UI管理：图形渲染、UI交互、状态管理 -->
+    <script src="/web/interactions.js"></script> <!-- 交互操作：节点操作、连线操作、拖拽处理 -->
+    <script src="/web/core.js"></script>        <!-- 核心模块：DOM初始化、事件绑定、概念图生成（最后加载） -->
+</body>
+</html> 
