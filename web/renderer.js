@@ -55,8 +55,8 @@ function drawGraph(data) {
         }
         console.log('concept-graph SVG 元素找到:', svg);
         
-        const width = svg.clientWidth || 800;
-        const height = svg.clientHeight || 700;
+        const width = svg.clientWidth || 1200;
+        const height = svg.clientHeight || 1200;
         console.log('SVG 尺寸:', width, 'x', height);
 
         // 保存焦点问题元素（如果存在）
@@ -1089,30 +1089,60 @@ function showLoadingAnimation() {
             const loadingGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             loadingGroup.setAttribute('id', 'loading-animation');
             
+            // 获取SVG尺寸以计算居中位置
+            const svgRect = svg.getBoundingClientRect();
+            const viewBox = svg.getAttribute('viewBox');
+            let svgWidth = 2400; // 默认viewBox宽度
+            let svgHeight = 1200; // 默认viewBox高度
+            
+            if (viewBox) {
+                const viewBoxParts = viewBox.split(' ');
+                if (viewBoxParts.length === 4) {
+                    svgWidth = parseFloat(viewBoxParts[2]);
+                    svgHeight = parseFloat(viewBoxParts[3]);
+                }
+            }
+            
+            // 计算居中位置（viewBox中心）
+            const centerX = svgWidth / 2;
+            const centerY = svgHeight / 2;
+            
+            // 放大后的尺寸
+            const boxWidth = 600; // 背景框宽度（放大）
+            const boxHeight = 100; // 背景框高度（放大）
+            const circleRadius = 18; // 圆圈半径（放大）
+            const fontSize = 28; // 文字大小（放大）
+            const padding = 30; // 内边距
+            
+            // 计算背景框位置（居中）
+            const boxX = centerX - boxWidth / 2;
+            const boxY = centerY - boxHeight / 2;
+            
             // 创建背景矩形
             const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            bgRect.setAttribute('x', '250');
-            bgRect.setAttribute('y', '330');
-            bgRect.setAttribute('width', '300');
-            bgRect.setAttribute('height', '50');
-            bgRect.setAttribute('rx', '8');
+            bgRect.setAttribute('x', boxX.toString());
+            bgRect.setAttribute('y', boxY.toString());
+            bgRect.setAttribute('width', boxWidth.toString());
+            bgRect.setAttribute('height', boxHeight.toString());
+            bgRect.setAttribute('rx', '12');
             bgRect.setAttribute('fill', 'white');
             bgRect.setAttribute('stroke', '#e1e5e9');
-            bgRect.setAttribute('stroke-width', '1');
+            bgRect.setAttribute('stroke-width', '2');
             bgRect.setAttribute('fill-opacity', '1');
+            bgRect.setAttribute('filter', 'drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15))');
             
             // 创建加载动画圆圈
             const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            circle.setAttribute('cx', '280');
-            circle.setAttribute('cy', '355');
-            circle.setAttribute('r', '10');
+            circle.setAttribute('cx', (boxX + padding + circleRadius).toString());
+            circle.setAttribute('cy', centerY.toString());
+            circle.setAttribute('r', circleRadius.toString());
             circle.setAttribute('fill', '#667eea');
             circle.setAttribute('fill-opacity', '0.8');
             
             // 添加脉冲动画
             const animate = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
             animate.setAttribute('attributeName', 'r');
-            animate.setAttribute('values', '10;11;10');
+            animate.setAttribute('values', `${circleRadius};${circleRadius + 2};${circleRadius}`);
             animate.setAttribute('dur', '1.5s');
             animate.setAttribute('repeatCount', 'indefinite');
             
@@ -1122,14 +1152,15 @@ function showLoadingAnimation() {
             animateOpacity.setAttribute('dur', '1.5s');
             animateOpacity.setAttribute('repeatCount', 'indefinite');
             
-            // 创建文字
+            // 创建文字（居中显示）
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('x', '350');
-            text.setAttribute('y', '355');
+            text.setAttribute('x', (boxX + padding * 2 + circleRadius * 2 + 20).toString());
+            text.setAttribute('y', centerY.toString());
             text.setAttribute('text-anchor', 'left');
             text.setAttribute('dominant-baseline', 'middle');
-            text.setAttribute('font-size', '14');
+            text.setAttribute('font-size', fontSize.toString());
             text.setAttribute('fill', '#333');
+            text.setAttribute('font-weight', '500');
             text.textContent = '概念图生成中，请稍后';
             
             // 组装加载动画
@@ -1391,8 +1422,8 @@ function displayFocusQuestion() {
         
         // 获取SVG的实际尺寸和viewBox
         const svgRect = svg.getBoundingClientRect();
-        const svgWidth = svgRect.width || 800;
-        const svgHeight = svgRect.height || 700;
+        const svgWidth = svgRect.width || 1200;
+        const svgHeight = svgRect.height || 1200;
         
         // 获取当前viewBox信息
         const viewBox = svg.getAttribute('viewBox');

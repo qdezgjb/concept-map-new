@@ -123,7 +123,7 @@ function displayUploadedImage(imageData, fileName) {
         const imageContainer = document.createElement('div');
         imageContainer.style.cssText = `
             width: 100%;
-            height: 700px;
+            height: 1200px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -853,9 +853,9 @@ function resetView() {
         graphCanvas.innerHTML = '';
         svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', '100%');
-        svg.setAttribute('height', '700');
+        svg.setAttribute('height', '1200');
         svg.setAttribute('class', 'concept-graph');
-        svg.setAttribute('viewBox', '0 0 1600 700');
+        svg.setAttribute('viewBox', '0 0 2400 1200');
         graphCanvas.appendChild(svg);
     }
     
@@ -867,8 +867,8 @@ function resetView() {
         
         // 默认显示文字
         const defaultText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        defaultText.setAttribute('x', '400');
-        defaultText.setAttribute('y', '300');
+        defaultText.setAttribute('x', '1200');
+        defaultText.setAttribute('y', '600');
         defaultText.setAttribute('text-anchor', 'middle');
         defaultText.setAttribute('dominant-baseline', 'middle');
         defaultText.setAttribute('font-size', '16');
@@ -1437,9 +1437,9 @@ function clearPreviousConceptMap() {
         graphCanvas.innerHTML = '';
         svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', '100%');
-        svg.setAttribute('height', '700');
+        svg.setAttribute('height', '1200');
         svg.setAttribute('class', 'concept-graph');
-        svg.setAttribute('viewBox', '0 0 1600 700');
+        svg.setAttribute('viewBox', '0 0 2400 1200');
         graphCanvas.appendChild(svg);
     } else if (svg) {
         // SVG存在，只需清空内容
