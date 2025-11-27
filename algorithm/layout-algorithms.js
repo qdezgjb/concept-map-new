@@ -1,5 +1,38 @@
 // 概念图布局算法模块
 // 包含所有布局相关的算法函数
+// 
+// 注意：此文件中的力导向布局算法已整合到 force-directed-layout.js
+// - 通用力导向算法：force-directed-layout.js（核心算法实现）
+// - 项目特定版本：此文件中的 applyForceDirectedLayoutWithProjectSpecifics（包含焦点问题节点处理）
+// - 布局协调器：此文件中的 applyIntelligentLayout（自动选择布局算法）
+
+/**
+ * 检测聚合连线（用于布局算法）
+ * @param {Array} links - 连线数组
+ * @returns {Array} 聚合连接组数组，每个组包含 {sourceId, label, links: [...]}
+ */
+function detectAggregatedLinksForLayout(links) {
+    const groups = new Map();
+    
+    links.forEach(link => {
+        const label = link.label || '双击编辑';
+        // 只对非空且有意义的连接词进行聚合（排除默认值）
+        if (label && label !== '双击编辑' && label.trim().length > 0) {
+            const key = `${link.source}_${label}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    sourceId: link.source,
+                    label: label,
+                    links: []
+                });
+            }
+            groups.get(key).links.push(link);
+        }
+    });
+    
+    // 只返回有2个或更多连线的组（需要聚合）
+    return Array.from(groups.values()).filter(group => group.links.length >= 2);
+}
 
 /**
  * 智能布局算法 - 自动选择最优布局方式
@@ -45,12 +78,12 @@ function applyIntelligentLayout(graphData) {
 }
 
 /**
- * 仅应用力导向布局算法
+ * 仅应用力导向布局算法（项目特定版本，包含焦点问题节点处理）
  * @param {Object} graphData - 图形数据
  * @returns {Object} 优化后的图形数据
  */
 function applyForceDirectedLayoutOnly(graphData) {
-    console.log('应用力导向布局...');
+    console.log('应用力导向布局（项目特定版本）...');
     
     if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
         console.warn('图形数据为空，跳过布局优化');
@@ -62,7 +95,9 @@ function applyForceDirectedLayoutOnly(graphData) {
     
     // 动态计算画布尺寸
     const maxNodeWidth = Math.max(...nodes.map(node => {
-        const nodeDimensions = calculateNodeDimensions(node.label || '', 100, 50, 20);
+        const nodeDimensions = window.calculateNodeDimensions ? 
+            window.calculateNodeDimensions(node.label || '', 70, 35, 14) :
+            { width: 100, height: 50 };
         return node.width || nodeDimensions.width;
     }));
     
@@ -75,22 +110,31 @@ function applyForceDirectedLayoutOnly(graphData) {
     const linkLength = Math.max(80, Math.min(120, height / (nodes.length + 2)));
     
     // 初始化节点位置（如果节点没有位置）
-    nodes.forEach((node, i) => {
-        if (node.x === undefined || node.y === undefined) {
-            // 随机初始位置，避免所有节点重叠
-            node.x = Math.random() * width;
-            node.y = Math.random() * height;
-        }
-    });
+    if (typeof window.initializeNodePositions === 'function') {
+        // 使用 force-directed-layout.js 中的初始化函数
+        window.initializeNodePositions(nodes, width, height);
+    } else {
+        // 备用初始化方法
+        nodes.forEach((node, i) => {
+            if (node.x === undefined || node.y === undefined) {
+                const angle = (2 * Math.PI * i) / nodes.length;
+                const radius = Math.min(width, height) / 3;
+                node.x = width / 2 + radius * Math.cos(angle) + (Math.random() - 0.5) * 50;
+                node.y = height / 2 + radius * Math.sin(angle) + (Math.random() - 0.5) * 50;
+            }
+        });
+    }
     
-    // 应用力导向算法
-    applyForceDirectedLayout(nodes, links, width, height, nodeSpacing, linkLength);
+    // 应用项目特定的力导向算法（包含焦点问题节点处理）
+    applyForceDirectedLayoutWithProjectSpecifics(nodes, links, width, height, nodeSpacing, linkLength);
     
-    // 最终调整
+    // 最终调整（项目特定逻辑）
     finalizePositions(nodes, width, height);
     
-    // 调整viewBox
-    adjustViewBox(nodes, width, height);
+    // 调整viewBox（项目特定逻辑）
+    if (typeof window.adjustViewBox === 'function') {
+        window.adjustViewBox(nodes, width, height);
+    }
     
     // 重新显示焦点问题，确保位置正确
     if (typeof window.displayFocusQuestion === 'function') {
@@ -205,7 +249,39 @@ function calculateHierarchyScore(nodes, links) {
 }
 
 /**
- * 应用力导向布局算法
+ * 简单的斥力实现（回退函数，当 force-directed-layout.js 未加载时使用）
+ * @param {Array} nodes - 节点数组
+ * @param {number} charge - 电荷强度
+ * @param {number} minDistance - 最小距离
+ */
+function applySimpleRepulsiveForces(nodes, charge, minDistance) {
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const nodeA = nodes[i];
+            const nodeB = nodes[j];
+            
+            const dx = nodeB.x - nodeA.x;
+            const dy = nodeB.y - nodeA.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 0) {
+                const safeDistance = Math.max(distance, minDistance);
+                const force = charge / (safeDistance * safeDistance);
+                const fx = (dx / safeDistance) * force;
+                const fy = (dy / safeDistance) * force;
+                
+                nodeA.fx = (nodeA.fx || 0) - fx;
+                nodeA.fy = (nodeA.fy || 0) - fy;
+                nodeB.fx = (nodeB.fx || 0) + fx;
+                nodeB.fy = (nodeB.fy || 0) + fy;
+            }
+        }
+    }
+}
+
+/**
+ * 应用力导向布局算法（项目特定版本，包含焦点问题节点处理）
+ * 此函数结合了 force-directed-layout.js 的核心算法和项目特定的逻辑
  * @param {Array} nodes - 节点数组
  * @param {Array} links - 连线数组
  * @param {number} width - 画布宽度
@@ -213,22 +289,43 @@ function calculateHierarchyScore(nodes, links) {
  * @param {number} nodeSpacing - 节点间距
  * @param {number} linkLength - 连线长度
  */
-function applyForceDirectedLayout(nodes, links, width, height, nodeSpacing, linkLength) {
+function applyForceDirectedLayoutWithProjectSpecifics(nodes, links, width, height, nodeSpacing, linkLength) {
     const maxIterations = 300;
     const coolingFactor = 0.95;
     const temperature = 1.0;
+    
+    // 初始化节点速度
+    nodes.forEach(node => {
+        if (!node.vx) node.vx = 0;
+        if (!node.vy) node.vy = 0;
+    });
     
     // 模拟物理力
     for (let iteration = 0; iteration < maxIterations; iteration++) {
         const currentTemp = temperature * Math.pow(coolingFactor, iteration);
         
-        // 应用引力（连线连接）
+        // 重置力
+        nodes.forEach(node => {
+            node.fx = 0;
+            node.fy = 0;
+        });
+        
+        // 应用斥力（使用 force-directed-layout.js 中的通用实现）
+        if (typeof window.applyRepulsiveForces === 'function') {
+            window.applyRepulsiveForces(nodes, -300, nodeSpacing);
+        } else {
+            // 回退：如果 force-directed-layout.js 未加载，使用简单的斥力实现
+            console.warn('force-directed-layout.js 未加载，使用简化的斥力实现');
+            applySimpleRepulsiveForces(nodes, -300, nodeSpacing);
+        }
+        
+        // 应用引力（使用项目特定的实现，包含焦点问题节点处理）
         applyAttractiveForces(nodes, links, linkLength, currentTemp);
         
-        // 应用边界力（保持节点在可视区域）
+        // 应用边界力（使用项目特定的实现，包含焦点问题节点处理）
         applyBoundaryForces(nodes, width, height, currentTemp);
         
-        // 更新位置
+        // 更新位置（使用项目特定的实现）
         updateNodePositions(nodes, currentTemp);
         
         // 检查收敛性
@@ -259,6 +356,16 @@ function applyAttractiveForces(nodes, links, linkLength, temperature) {
         }
     }
     
+    // 检测聚合连线
+    const aggregatedLinks = detectAggregatedLinksForLayout(links);
+    const aggregatedLinkMap = new Map(); // key: linkId, value: aggregatedGroup
+    aggregatedLinks.forEach(group => {
+        group.links.forEach(link => {
+            const linkId = link.id || `link-${link.source}-${link.target}`;
+            aggregatedLinkMap.set(linkId, group);
+        });
+    });
+    
     links.forEach(link => {
         const source = nodes.find(n => n.id === link.source);
         const target = nodes.find(n => n.id === link.target);
@@ -277,6 +384,12 @@ function applyAttractiveForces(nodes, links, linkLength, temperature) {
                     force *= 1.5; // 增强50%的引力
                 }
                 
+                // 如果是聚合连线，增强引力使节点更靠近
+                const linkId = link.id || `link-${link.source}-${link.target}`;
+                if (aggregatedLinkMap.has(linkId)) {
+                    force *= 2.5; // 聚合连线的引力增强2.5倍
+                }
+                
                 // 应用引力
                 const fx = dx * force;
                 const fy = dy * force;
@@ -287,6 +400,41 @@ function applyAttractiveForces(nodes, links, linkLength, temperature) {
                 target.vy = (target.vy || 0) - fy;
             }
         }
+    });
+    
+    // 对聚合连线的目标节点之间也添加额外的引力，使它们聚集在一起
+    aggregatedLinks.forEach(group => {
+        const sourceNode = nodes.find(n => n.id === group.sourceId);
+        if (!sourceNode) return;
+        
+        const targetNodes = group.links
+            .map(link => nodes.find(n => n.id === link.target))
+            .filter(node => node !== undefined);
+        
+        if (targetNodes.length < 2) return;
+        
+        // 计算目标节点的中心位置
+        const centerX = targetNodes.reduce((sum, node) => sum + node.x, 0) / targetNodes.length;
+        const centerY = targetNodes.reduce((sum, node) => sum + node.y, 0) / targetNodes.length;
+        
+        // 对每个目标节点，添加向中心聚集的引力
+        targetNodes.forEach(targetNode => {
+            const dx = centerX - targetNode.x;
+            const dy = centerY - targetNode.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 0) {
+                // 计算向中心聚集的引力（使用较短的理想距离）
+                const idealDistance = linkLength * 0.6; // 聚合节点的理想距离更短
+                const force = (distance - idealDistance) / distance * temperature * 0.2;
+                
+                const fx = dx * force;
+                const fy = dy * force;
+                
+                targetNode.vx = (targetNode.vx || 0) + fx;
+                targetNode.vy = (targetNode.vy || 0) + fy;
+            }
+        });
     });
     
     // 为第一级节点添加额外的引力，让其他节点倾向于围绕它排列
@@ -343,7 +491,7 @@ function applyBoundaryForces(nodes, width, height, temperature) {
     
     nodes.forEach(node => {
         // 考虑节点尺寸的边界检查
-        const nodeDimensions = window.calculateNodeDimensions(node.label || '', 100, 50, 20);
+        const nodeDimensions = window.calculateNodeDimensions(node.label || '', 70, 35, 14);
         const nodeWidth = node.width || nodeDimensions.width;
         const nodeHeight = node.height || nodeDimensions.height;
         
@@ -513,8 +661,8 @@ function hasLinkNodeOverlap(link, nodes) {
     if (!source || !target) return false;
     
     // 计算连接线的起点和终点（节点边缘）
-    const sourceDimensions = calculateNodeDimensions(source.label || '', 100, 50, 20);
-    const targetDimensions = calculateNodeDimensions(target.label || '', 100, 50, 20);
+    const sourceDimensions = calculateNodeDimensions(source.label || '', 70, 35, 14);
+    const targetDimensions = calculateNodeDimensions(target.label || '', 70, 35, 14);
     
     const sourceWidth = source.width || sourceDimensions.width;
     const sourceHeight = source.height || sourceDimensions.height;
@@ -559,7 +707,7 @@ function hasLinkNodeOverlap(link, nodes) {
     for (const node of nodes) {
         if (node.id === link.source || node.id === link.target) continue;
         
-        const nodeDimensions = window.calculateNodeDimensions(node.label || '', 100, 50, 20);
+        const nodeDimensions = window.calculateNodeDimensions(node.label || '', 70, 35, 14);
         const nodeWidth = node.width || nodeDimensions.width;
         const nodeHeight = node.height || nodeDimensions.height;
         
@@ -631,17 +779,36 @@ function pointInRect(px, py, rectX, rectY, rectWidth, rectHeight) {
  * 计算折线路径点，避开重叠的节点
  * @param {Object} link - 连线对象
  * @param {Array} nodes - 节点数组
+ * @param {Array} allLinks - 所有连线数组（用于检测双向连接）
  * @returns {Object} 路径数据
  */
-function calculatePolylinePath(link, nodes) {
+function calculatePolylinePath(link, nodes, allLinks = null) {
     const source = nodes.find(n => n.id === link.source);
     const target = nodes.find(n => n.id === link.target);
     
     if (!source || !target) return null;
     
+    // 检测双向连接（两个节点之间相互有连线）
+    let isBidirectional = false;
+    let isFirstLink = true; // 用于确定圆弧方向
+    if (allLinks) {
+        const reverseLink = allLinks.find(l => 
+            l.source === link.target && l.target === link.source && l.id !== link.id
+        );
+        if (reverseLink) {
+            isBidirectional = true;
+            // 根据link的ID或source/target的ID来确定哪条线向上弯曲，哪条向下弯曲
+            // 使用source和target的ID组合来确定方向，确保一致性
+            const linkKey = `${link.source}-${link.target}`;
+            const reverseKey = `${link.target}-${link.source}`;
+            // 如果当前link的key字典序小于reverse key，则向上弯曲，否则向下弯曲
+            isFirstLink = linkKey < reverseKey;
+        }
+    }
+    
     // 计算连接线的起点和终点（节点边缘）
-    const sourceDimensions = calculateNodeDimensions(source.label || '', 100, 50, 20);
-    const targetDimensions = calculateNodeDimensions(target.label || '', 100, 50, 20);
+    const sourceDimensions = calculateNodeDimensions(source.label || '', 70, 35, 14);
+    const targetDimensions = calculateNodeDimensions(target.label || '', 70, 35, 14);
     
     const sourceWidth = source.width || sourceDimensions.width;
     const sourceHeight = source.height || sourceDimensions.height;
@@ -682,12 +849,18 @@ function calculatePolylinePath(link, nodes) {
         }
     }
     
+    // 如果是双向连接，使用圆弧连线
+    if (isBidirectional) {
+        return calculateCurvedPath(startX, startY, endX, endY, isFirstLink);
+    }
+    
     // 检查是否有重叠
     const overlapCheck = hasLinkNodeOverlap(link, nodes);
     if (!overlapCheck.hasOverlap) {
         // 没有重叠，返回直线路径
         return {
             isPolyline: false,
+            isCurved: false,
             path: `M ${startX} ${startY} L ${endX} ${endY}`,
             waypoints: [{ x: startX, y: startY }, { x: endX, y: endY }]
         };
@@ -704,8 +877,60 @@ function calculatePolylinePath(link, nodes) {
     
     return {
         isPolyline: true,
+        isCurved: false,
         path: path,
         waypoints: waypoints
+    };
+}
+
+/**
+ * 计算圆弧路径（用于双向连接）
+ * @param {number} startX - 起点X坐标
+ * @param {number} startY - 起点Y坐标
+ * @param {number} endX - 终点X坐标
+ * @param {number} endY - 终点Y坐标
+ * @param {boolean} isFirstLink - 是否为第一条连线（用于确定弯曲方向）
+ * @returns {Object} 路径数据
+ */
+function calculateCurvedPath(startX, startY, endX, endY, isFirstLink) {
+    // 计算中点
+    const midX = (startX + endX) / 2;
+    const midY = (startY + endY) / 2;
+    
+    // 计算连线的方向和垂直方向
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // 计算垂直方向（用于控制点）
+    const perpX = -dy / distance;
+    const perpY = dx / distance;
+    
+    // 圆弧的弯曲程度（距离越大，弯曲程度越大）
+    const curvature = Math.min(distance * 0.3, 80); // 最大弯曲80px
+    
+    // 确定弯曲方向：第一条线向上弯曲，第二条线向下弯曲
+    const curveDirection = isFirstLink ? 1 : -1;
+    const controlX = midX + perpX * curvature * curveDirection;
+    const controlY = midY + perpY * curvature * curveDirection;
+    
+    // 使用二次贝塞尔曲线创建圆弧
+    const path = `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`;
+    
+    // 计算路径上的点（用于标签位置和箭头计算）
+    // 在路径的50%位置（控制点附近）作为中点
+    const waypoints = [
+        { x: startX, y: startY },
+        { x: controlX, y: controlY },
+        { x: endX, y: endY }
+    ];
+    
+    return {
+        isPolyline: false,
+        isCurved: true,
+        path: path,
+        waypoints: waypoints,
+        controlPoint: { x: controlX, y: controlY }
     };
 }
 
@@ -727,7 +952,7 @@ function calculateWaypoints(startX, startY, endX, endY, nodes, link) {
     for (const node of nodes) {
         if (node.id === link.source || node.id === link.target) continue;
         
-        const nodeDimensions = window.calculateNodeDimensions(node.label || '', 100, 50, 20);
+        const nodeDimensions = window.calculateNodeDimensions(node.label || '', 70, 35, 14);
         const nodeWidth = node.width || nodeDimensions.width;
         const nodeHeight = node.height || nodeDimensions.height;
         
@@ -1081,7 +1306,7 @@ function ensureUniformSpacing(nodes, links) {
         
         // 计算所有节点的实际宽度
         const nodeWidths = levelNodes.map(node => {
-            const nodeDimensions = calculateNodeDimensions(node.label || '', 100, 50, 20);
+            const nodeDimensions = calculateNodeDimensions(node.label || '', 70, 35, 14);
             return node.width || nodeDimensions.width;
         });
         
@@ -1116,7 +1341,8 @@ if (typeof module !== 'undefined' && module.exports) {
         applyIntelligentLayout,
         analyzeGraphStructure,
         calculateHierarchyScore,
-        applyForceDirectedLayout,
+        applyForceDirectedLayoutOnly,
+        applyForceDirectedLayoutWithProjectSpecifics,
         applyAttractiveForces,
         applyBoundaryForces,
         updateNodePositions,
@@ -1141,7 +1367,8 @@ if (typeof module !== 'undefined' && module.exports) {
     window.applyIntelligentLayout = applyIntelligentLayout;
     window.analyzeGraphStructure = analyzeGraphStructure;
     window.calculateHierarchyScore = calculateHierarchyScore;
-    window.applyForceDirectedLayout = applyForceDirectedLayout;
+    window.applyForceDirectedLayoutOnly = applyForceDirectedLayoutOnly;
+    window.applyForceDirectedLayoutWithProjectSpecifics = applyForceDirectedLayoutWithProjectSpecifics;
     window.applyAttractiveForces = applyAttractiveForces;
     window.applyBoundaryForces = applyBoundaryForces;
     window.updateNodePositions = updateNodePositions;

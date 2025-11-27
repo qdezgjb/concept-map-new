@@ -12,13 +12,16 @@ function editNodeText(nodeId) {
         if (!node) return;
 
         // 获取SVG画布和其位置信息
-        const conceptMapDisplay = document.querySelector('.concept-map-display');
-        const svg = conceptMapDisplay.querySelector('.concept-graph');
+        const svg = document.querySelector('.concept-graph');
+        if (!svg) {
+            console.error('concept-graph SVG 元素未找到');
+            return;
+        }
         const svgRect = svg.getBoundingClientRect();
 
         // 计算节点尺寸
-        const nodeWidth = Math.max(100, (node.label || '').length * 12);
-        const nodeHeight = 40;
+        const nodeWidth = Math.max(70, (node.label || '').length * 10);
+        const nodeHeight = 30;
 
         // 计算输入框在页面中的绝对位置
         const inputLeft = svgRect.left + (node.x - nodeWidth / 2);
@@ -122,6 +125,9 @@ function editNodeText(nodeId) {
 function selectNode(nodeId) {
         console.log(`选中节点: ${nodeId}, 之前选中的节点: ${selectedNodeId}`);
         
+        // 取消全选状态
+        window.isAllNodesSelected = false;
+        
         // 取消连线选中（节点和连线选中互斥）
         deselectLink();
         
@@ -176,6 +182,47 @@ function deselectNode() {
             updateNodeOperationButtons();
             updateLinkOperationButtons();
         }
+    }
+
+// selectAllNodes - 选中所有节点
+function selectAllNodes() {
+        if (!currentGraphData || !currentGraphData.nodes || currentGraphData.nodes.length === 0) {
+            showMessage('没有可选的节点', 'info');
+            return;
+        }
+        
+        // 取消连线选中
+        deselectLink();
+        
+        // 设置全选状态
+        window.isAllNodesSelected = true;
+        
+        // 将所有节点标记为选中状态
+        const allNodes = document.querySelectorAll('g[data-node-id]');
+        allNodes.forEach(nodeGroup => {
+            const rect = nodeGroup.querySelector('rect');
+            if (rect) {
+                rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                rect.setAttribute('stroke-width', '3');
+            }
+        });
+        
+        // 选中第一个节点（作为主要选中节点，用于显示控制手柄）
+        if (currentGraphData.nodes.length > 0) {
+            const firstNodeId = currentGraphData.nodes[0].id;
+            selectedNodeId = firstNodeId;
+            const firstNodeGroup = document.querySelector(`g[data-node-id="${firstNodeId}"]`);
+            if (firstNodeGroup) {
+                // 为第一个节点添加控制手柄
+                addNodeHandles(firstNodeGroup);
+            }
+        }
+        
+        // 更新按钮状态
+        updateNodeOperationButtons();
+        updateLinkOperationButtons();
+        
+        showMessage(`已选中所有节点（共 ${currentGraphData.nodes.length} 个）`, 'info');
     }
 
 // selectLink
@@ -418,9 +465,9 @@ function handleResize(e) {
                 
                 // 更新文字大小 - 让文字缩放更加明显
                 const text = nodeGroup.querySelector('text');
-                let newFontSize = 12; // 默认字体大小
+                let newFontSize = 10; // 默认字体大小
                 if (text) {
-                    newFontSize = Math.max(8, 12 * clampedScale);
+                    newFontSize = Math.max(8, 10 * clampedScale);
                     text.setAttribute('font-size', newFontSize);
                     
                     // 同时调整文字位置，确保在节点中心
@@ -530,8 +577,32 @@ function deleteSelectedNode() {
             return;
         }
         
+        // 如果全选所有节点，删除所有节点
+        if (window.isAllNodesSelected) {
+            const nodeCount = currentGraphData.nodes.length;
+            // 清空所有节点和连线
+            currentGraphData.nodes = [];
+            currentGraphData.links = [];
+            
+            // 更新全局变量
+            window.currentGraphData = currentGraphData;
+            
+            // 重新绘制图形
+            drawGraph(currentGraphData);
+            updateStatusBar(currentGraphData);
+            saveToHistory(currentGraphData);
+            
+            // 取消全选状态
+            window.isAllNodesSelected = false;
+            selectedNodeId = null;
+            deselectNode();
+            
+            showMessage(`已删除所有节点（共 ${nodeCount} 个）`, 'success');
+            return;
+        }
+        
         if (!selectedNodeId) {
-        showMessage('请先选择要删除的节点', 'info');
+            showMessage('请先选择要删除的节点', 'info');
             return;
         }
 
@@ -598,8 +669,11 @@ function editLinkLabel(linkId) {
         if (!link) return;
 
         // 获取SVG画布和其位置信息
-        const conceptMapDisplay = document.querySelector('.concept-map-display');
-        const svg = conceptMapDisplay.querySelector('.concept-graph');
+        const svg = document.querySelector('.concept-graph');
+        if (!svg) {
+            console.error('concept-graph SVG 元素未找到');
+            return;
+        }
         const svgRect = svg.getBoundingClientRect();
 
         // 找到连接线标签元素
@@ -1117,8 +1191,8 @@ function createVirtualConnectionLine(sourceNodeId, direction, startX, startY) {
         // 设置起点（从源节点的边缘开始）
         const sourceNode = currentGraphData.nodes.find(n => n.id === sourceNodeId);
         if (sourceNode) {
-            const nodeWidth = sourceNode.width || Math.max(100, (sourceNode.label || '').length * 12);
-            const nodeHeight = sourceNode.height || 40;
+            const nodeWidth = sourceNode.width || Math.max(70, (sourceNode.label || '').length * 10);
+            const nodeHeight = sourceNode.height || 30;
             
             let startX, startY;
             switch (direction) {

@@ -12,6 +12,7 @@ window.isGenerating = false;
 // 节点选中和拖动相关变量
 window.selectedNodeId = null;
 window.selectedLinkId = null;
+window.isAllNodesSelected = false; // 标记是否全选所有节点
 window.isDragging = false;
 window.dragStartX = 0;
 window.dragStartY = 0;
@@ -48,13 +49,7 @@ function initializePage() {
         console.error('exportBtn 元素未找到');
     }
     
-    // 确保编辑工具栏可见
-    if (window.editToolbar) {
-        window.editToolbar.style.display = 'grid';
-        console.log('编辑工具栏已设置为可见');
-    } else {
-        console.error('editToolbar 元素未找到');
-    }
+    // 编辑工具栏现在在control-bar中，不需要单独设置
     
     // 添加示例数据提示
     if (window.keywordInput) {
@@ -114,7 +109,7 @@ function displayUploadedImage(imageData, fileName) {
     }
     
     // 清空并更新SVG画布，显示上传的图片
-    const graphCanvas = document.querySelector('.graph-canvas');
+    const graphCanvas = document.querySelector('.graph-canvas-fullwidth') || document.querySelector('.graph-canvas');
     if (graphCanvas) {
         // 清空原有内容
         graphCanvas.innerHTML = '';
@@ -206,16 +201,6 @@ async function exploreMisconception(topic) {
         const conceptMapDisplay = document.querySelector('.concept-map-display');
         if (conceptMapDisplay) {
             conceptMapDisplay.style.display = 'flex';
-            
-            // 针对迷思概念探查功能，调整显示顺序：文本内容展示在前，概念图展示在后
-            const graphWindow = conceptMapDisplay.querySelector('.graph-window');
-            const aiIntroduction = conceptMapDisplay.querySelector('.ai-introduction');
-            
-            if (graphWindow && aiIntroduction) {
-                // 将文本内容展示移到概念图展示之前
-                conceptMapDisplay.insertBefore(aiIntroduction, graphWindow);
-                console.log('✅ 已调整迷思概念探查模块的显示顺序：文本内容在前，概念图在后');
-            }
         }
         
         // 隐藏占位符
@@ -820,10 +805,7 @@ function resetView() {
         conceptMapDisplay.style.display = 'none';
     }
     
-    // 保持编辑工具栏可见
-    if (window.editToolbar) {
-        window.editToolbar.style.display = 'grid';
-    }
+    // 编辑工具栏现在在control-bar中，始终可见
     
     // 取消节点选中状态
     deselectNode();
@@ -843,8 +825,15 @@ function resetView() {
         aiIntroText.className = 'intro-text';
     }
     
+    // 清空概念节点和关系连接列表区域
+    const conceptListsArea = document.getElementById('conceptListsArea');
+    if (conceptListsArea) {
+        conceptListsArea.innerHTML = '';
+        conceptListsArea.style.display = 'none';
+    }
+    
     // 恢复SVG画布（如果之前被上传图片替换了）
-    const graphCanvas = document.querySelector('.graph-canvas');
+    const graphCanvas = document.querySelector('.graph-canvas-fullwidth') || document.querySelector('.graph-canvas');
     let svg = document.querySelector('.concept-graph');
     
     if (!svg && graphCanvas) {
@@ -894,6 +883,7 @@ function resetView() {
     // 重置所有相关状态
     selectedNodeId = null;
     selectedLinkId = null;
+    window.isAllNodesSelected = false;
     isDragging = false;
     isLinkCreationMode = false;
     linkSourceNodeId = null;
@@ -962,6 +952,10 @@ function resetGenerateButtons() {
         window.descriptionBtn.textContent = '分析生成';
         window.descriptionBtn.disabled = false;
     }
+    // 启用布局下拉框
+    if (window.layoutSelect) {
+        window.layoutSelect.disabled = false;
+    }
 }
 
 async function generateConceptMapWithLLM(type, data) {
@@ -974,6 +968,12 @@ async function generateConceptMapWithLLM(type, data) {
     
     isGenerating = true;
     console.log('开始生成概念图流程...');
+    
+    // 禁用布局下拉框，防止在生成过程中切换布局
+    if (window.layoutSelect) {
+        window.layoutSelect.disabled = true;
+        console.log('布局下拉框已禁用');
+    }
     
     // 清除之前的概念图内容
     console.log('清除之前的概念图内容...');
@@ -1353,6 +1353,12 @@ async function generateConceptMapWithLLM(type, data) {
         hideLoadingState();
         resetGenerateButtons();
         
+        // 启用布局下拉框
+        if (window.layoutSelect) {
+            window.layoutSelect.disabled = false;
+            console.log('布局下拉框已启用');
+        }
+        
         // 恢复迷思概念探查的生成按钮状态（如果存在）
         if (window.misconceptionGenerateBtn) {
             window.misconceptionGenerateBtn.disabled = false;
@@ -1366,10 +1372,9 @@ async function generateConceptMapWithLLM(type, data) {
 function generateFocusQuestion(type, data) {
     let focusQuestion = '';
     if (type === 'keyword') {
-        // 焦点问题模式
+        // 焦点问题模式 - 直接使用用户输入的内容
         const keyword = data.keyword;
-        // 完整显示焦点问题，不使用省略号
-        focusQuestion = `焦点问题：${keyword}是什么？`;
+        focusQuestion = `焦点问题：${keyword}`;
     } else {
         // 文本分析模式
         const textContent = data.description;
@@ -1398,37 +1403,29 @@ function generateFocusQuestion(type, data) {
 function clearPreviousConceptMap() {
     console.log('开始清除之前的概念图内容...');
     
-    // 恢复概念图展示区域的原始顺序（针对其他功能模块）
-    const conceptMapDisplay = document.querySelector('.concept-map-display');
-    if (conceptMapDisplay) {
-        const currentProcess = conceptMapDisplay.querySelector('.current-process');
-        const graphWindow = conceptMapDisplay.querySelector('.graph-window');
-        const aiIntroduction = conceptMapDisplay.querySelector('.ai-introduction');
-        
-        // 如果顺序被改变（ai-introduction 在 graph-window 之前），恢复原始顺序
-        if (currentProcess && graphWindow && aiIntroduction) {
-            const children = Array.from(conceptMapDisplay.children);
-            const aiIndex = children.indexOf(aiIntroduction);
-            const graphIndex = children.indexOf(graphWindow);
-            
-            // 如果文本内容在概念图之前，恢复原始顺序
-            if (aiIndex < graphIndex) {
-                // 恢复顺序：current-process -> graph-window -> ai-introduction
-                conceptMapDisplay.insertBefore(graphWindow, aiIntroduction);
-                console.log('✅ 已恢复概念图展示区域的原始顺序');
-            }
-        }
-    }
-    
-    // 清空AI介绍文字
+    // 清空AI介绍文字（现在在control-bar中）
     const aiIntroText = document.getElementById('aiIntroText');
     if (aiIntroText) {
         aiIntroText.innerHTML = '';
-        aiIntroText.className = 'intro-text';
+        aiIntroText.className = 'intro-text-compact';
+    }
+    
+    // 清空当前流程文本（现在在control-bar中）
+    const processText = document.getElementById('processText');
+    if (processText) {
+        processText.innerHTML = '';
+        processText.className = 'process-text-compact';
+    }
+    
+    // 清空概念节点和关系连接列表区域
+    const conceptListsArea = document.getElementById('conceptListsArea');
+    if (conceptListsArea) {
+        conceptListsArea.innerHTML = '';
+        conceptListsArea.style.display = 'none';
     }
     
     // 恢复SVG画布（如果之前被上传图片替换了）
-    const graphCanvas = document.querySelector('.graph-canvas');
+    const graphCanvas = document.querySelector('.graph-canvas-fullwidth') || document.querySelector('.graph-canvas');
     let svg = document.querySelector('.concept-graph');
     
     if (!svg && graphCanvas) {
@@ -1463,6 +1460,7 @@ function clearPreviousConceptMap() {
     // 重置所有相关状态
     selectedNodeId = null;
     selectedLinkId = null;
+    window.isAllNodesSelected = false;
     isDragging = false;
     isLinkCreationMode = false;
     linkSourceNodeId = null;
@@ -1511,8 +1509,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('exportBtn:', window.exportBtn);
     console.log('graphPlaceholder:', window.graphPlaceholder);
     
-    // 编辑工具栏元素（全局）
-    window.editToolbar = document.querySelector('.edit-toolbar');
+    // 编辑工具栏元素（全局）- 现在在control-bar中
     window.addNodeBtn = document.getElementById('addNodeBtn');
     window.deleteNodeBtn = document.getElementById('deleteNodeBtn');
     window.editNodeBtn = document.getElementById('editNodeBtn');
@@ -1523,7 +1520,6 @@ document.addEventListener('DOMContentLoaded', function() {
     window.autoLayoutBtn = document.getElementById('autoLayoutBtn');
     
     console.log('编辑工具栏元素获取结果:');
-    console.log('editToolbar:', window.editToolbar);
     console.log('addNodeBtn:', window.addNodeBtn);
     console.log('deleteNodeBtn:', window.deleteNodeBtn);
     console.log('editNodeBtn:', window.editNodeBtn);
@@ -1558,6 +1554,27 @@ document.addEventListener('DOMContentLoaded', function() {
     //=============================================================================
     // 事件监听器绑定
     //=============================================================================
+    
+    // 功能标签页切换事件
+    const functionTabs = document.querySelectorAll('.function-tab');
+    functionTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-tab');
+            
+            // 移除所有活动状态
+            functionTabs.forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.function-module').forEach(m => m.classList.remove('active'));
+            
+            // 添加当前标签的活动状态
+            this.classList.add('active');
+            const targetModule = document.getElementById(`function-${tabId}`);
+            if (targetModule) {
+                targetModule.classList.add('active');
+            }
+            
+            console.log('切换到功能标签:', tabId);
+        });
+    });
     
     // 迷思概念探查事件
     if (window.exploreMisconceptionBtn) {
@@ -1824,6 +1841,79 @@ document.addEventListener('DOMContentLoaded', function() {
             redoOperation();
         });
     }
+
+    // 键盘快捷键事件监听
+    document.addEventListener('keydown', function(e) {
+        // 如果正在输入文本，不处理快捷键
+        const activeElement = document.activeElement;
+        if (activeElement && (
+            activeElement.tagName === 'INPUT' || 
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.isContentEditable
+        )) {
+            // 如果按的是 Delete 或 Backspace，且不在输入框中，可以删除
+            if ((e.key === 'Delete' || e.key === 'Backspace') && 
+                activeElement.tagName !== 'INPUT' && 
+                activeElement.tagName !== 'TEXTAREA') {
+                // 允许删除操作
+            } else {
+                return; // 其他快捷键在输入框中不处理
+            }
+        }
+        
+        // Ctrl+Z: 撤销
+        if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            console.log('Ctrl+Z 被按下，执行撤销操作');
+            if (typeof undoOperation === 'function') {
+                undoOperation();
+            }
+            return;
+        }
+        
+        // Ctrl+Shift+Z 或 Ctrl+Y: 重做
+        if ((e.ctrlKey && e.shiftKey && e.key === 'z') || (e.ctrlKey && e.key === 'y')) {
+            e.preventDefault();
+            console.log('Ctrl+Shift+Z 或 Ctrl+Y 被按下，执行重做操作');
+            if (typeof redoOperation === 'function') {
+                redoOperation();
+            }
+            return;
+        }
+        
+        // Ctrl+A: 全选节点
+        if (e.ctrlKey && e.key === 'a') {
+            e.preventDefault();
+            console.log('Ctrl+A 被按下，执行全选节点操作');
+            if (typeof selectAllNodes === 'function') {
+                selectAllNodes();
+            }
+            return;
+        }
+        
+        // Delete 或 Backspace: 删除选中的节点或连线
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            // 检查是否有选中的节点
+            if (selectedNodeId) {
+                e.preventDefault();
+                console.log('Delete/Backspace 被按下，删除选中的节点:', selectedNodeId);
+                if (typeof deleteSelectedNode === 'function') {
+                    deleteSelectedNode();
+                }
+                return;
+            }
+            
+            // 检查是否有选中的连线
+            if (selectedLinkId) {
+                e.preventDefault();
+                console.log('Delete/Backspace 被按下，删除选中的连线:', selectedLinkId);
+                if (typeof deleteSelectedLink === 'function') {
+                    deleteSelectedLink();
+                }
+                return;
+            }
+        }
+    });
 
     // 初始化页面
     initializePage();

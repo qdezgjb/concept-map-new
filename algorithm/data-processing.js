@@ -2,8 +2,8 @@
 // 处理概念图数据的转换、分析和处理
 
 /**
- * 验证层级关系是否有效（只允许从高层到低层的相邻层连接）
- * @param {string} layerRelation - 层级关系标记（如L1-L2、L2-L3等）
+ * 验证层级关系是否有效（只允许从高层到低层的相邻层连接，支持任意层数）
+ * @param {string} layerRelation - 层级关系标记（如L1-L2、L2-L3、L3-L4、L4-L5等）
  * @returns {boolean} 是否有效
  */
 function validateLayerRelation(layerRelation) {
@@ -12,22 +12,37 @@ function validateLayerRelation(layerRelation) {
         return false; // 如果没有层级信息，拒绝该三元组
     }
     
-    // 只允许从高层到低层的连接：L1→L2、L2→L3、L3→L4
-    const validRelations = ['L1-L2', 'L2-L3', 'L3-L4'];
-    const isValid = validRelations.includes(layerRelation.trim());
+    // 匹配格式：L数字-L数字（如L1-L2、L2-L3、L3-L4、L4-L5等）
+    const layerPattern = /^L(\d+)-L(\d+)$/;
+    const match = layerRelation.trim().match(layerPattern);
+    
+    if (!match) {
+        console.log('⚠️ 无效的层级关系格式:', layerRelation);
+        return false;
+    }
+    
+    const sourceLayer = parseInt(match[1]);
+    const targetLayer = parseInt(match[2]);
+    
+    // 只允许从高层到低层的相邻层连接（如L1→L2、L2→L3、L3→L4、L4→L5等）
+    // 不允许跨层（如L1→L3）、反向（如L2→L1）、同层（如L2→L2）
+    const isValid = targetLayer === sourceLayer + 1;
     
     if (!isValid) {
-        console.log('⚠️ 无效的层级关系:', layerRelation, '只允许从高到低:', validRelations);
-        console.log('   拒绝反向连接（L2→L1、L3→L2、L4→L3）');
-        console.log('   拒绝跨层连接（L1→L3、L1→L4、L2→L4）');
-        console.log('   拒绝同层连接（L2→L2、L3→L3、L4→L4）');
+        if (targetLayer < sourceLayer) {
+            console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝反向连接（从低层到高层）');
+        } else if (targetLayer === sourceLayer) {
+            console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝同层连接');
+        } else {
+            console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝跨层连接（必须相邻层）');
+        }
     }
     
     return isValid;
 }
 
 /**
- * 确保第一层只有一个节点，内容与焦点问题相关
+ * 确保第一层只有一个节点，内容与焦点问题相关，删除其他L1层节点
  * @param {Object} conceptData - 概念图数据
  * @returns {Object} 处理后的概念图数据
  */
@@ -63,17 +78,32 @@ function ensureSingleFirstLayer(conceptData) {
     
     console.log('当前焦点问题:', currentKeyword);
     
-    // 找到与焦点问题最相关的节点作为第一层节点
+    // 找到所有L1层节点
+    const layer1Nodes = nodes.filter(node => node.layer === 1);
+    console.log(`找到 ${layer1Nodes.length} 个L1层节点:`, layer1Nodes.map(n => n.label));
+    
+    // 找到与焦点问题最相关的L1节点作为唯一的第一层节点
     let firstLayerNode = null;
     let bestMatchScore = 0;
     
-    nodes.forEach(node => {
+    layer1Nodes.forEach(node => {
         const matchScore = calculateKeywordMatchScore(node.label, currentKeyword);
         if (matchScore > bestMatchScore) {
             bestMatchScore = matchScore;
             firstLayerNode = node;
         }
     });
+    
+    // 如果没有找到L1节点，尝试从所有节点中找到最相关的
+    if (!firstLayerNode) {
+        nodes.forEach(node => {
+            const matchScore = calculateKeywordMatchScore(node.label, currentKeyword);
+            if (matchScore > bestMatchScore) {
+                bestMatchScore = matchScore;
+                firstLayerNode = node;
+            }
+        });
+    }
     
     // ⚠️ 确保第一层节点有layer=1属性
     if (firstLayerNode) {
@@ -94,23 +124,71 @@ function ensureSingleFirstLayer(conceptData) {
         nodes.unshift(firstLayerNode);
     }
     
-    // 确保第一层节点在数组的第一位
-    if (firstLayerNode.id !== nodes[0].id) {
-        const firstLayerIndex = nodes.findIndex(n => n.id === firstLayerNode.id);
-        if (firstLayerIndex > 0) {
-            nodes.splice(firstLayerIndex, 1);
-            nodes.unshift(firstLayerNode);
+    // 🔴🔴🔴 关键：删除所有其他L1层节点
+    const nodesToRemove = new Set();
+    const firstLayerId = firstLayerNode.id;
+    
+    nodes.forEach(node => {
+        // 如果是L1层节点但不是选中的第一层节点，标记为删除
+        if (node.layer === 1 && node.id !== firstLayerId) {
+            nodesToRemove.add(node.id);
+            console.log(`标记删除L1层节点: "${node.label}" (id: ${node.id})`);
         }
+    });
+    
+    // 删除标记的节点
+    const filteredNodes = nodes.filter(node => !nodesToRemove.has(node.id));
+    console.log(`删除了 ${nodes.length - filteredNodes.length} 个L1层节点`);
+    
+    // 处理连线：删除涉及被删除节点的连线，或将它们重定向到第一层节点
+    const newLinks = [];
+    links.forEach(link => {
+        const sourceRemoved = nodesToRemove.has(link.source);
+        const targetRemoved = nodesToRemove.has(link.target);
+        
+        if (sourceRemoved && targetRemoved) {
+            // 源和目标都被删除，跳过这条连线
+            console.log(`删除连线（源和目标都被删除）: ${link.source} -> ${link.target}`);
+            return;
+        } else if (sourceRemoved) {
+            // 源节点被删除，将连线重定向到第一层节点
+            console.log(`重定向连线（源节点被删除）: ${link.source} -> ${link.target}，改为 ${firstLayerId} -> ${link.target}`);
+            newLinks.push({
+                ...link,
+                source: firstLayerId
+            });
+        } else if (targetRemoved) {
+            // 目标节点被删除，将连线重定向到第一层节点（如果源不是第一层节点）
+            if (link.source !== firstLayerId) {
+                console.log(`重定向连线（目标节点被删除）: ${link.source} -> ${link.target}，改为 ${link.source} -> ${firstLayerId}`);
+                newLinks.push({
+                    ...link,
+                    target: firstLayerId
+                });
+            } else {
+                // 源是第一层节点，目标是已删除的L1节点，删除这条连线
+                console.log(`删除连线（第一层节点指向已删除的L1节点）: ${link.source} -> ${link.target}`);
+            }
+        } else {
+            // 正常连线，保留
+            newLinks.push(link);
+        }
+    });
+    
+    // 确保第一层节点在数组的第一位
+    const firstLayerIndex = filteredNodes.findIndex(n => n.id === firstLayerId);
+    if (firstLayerIndex > 0) {
+        filteredNodes.splice(firstLayerIndex, 1);
+        filteredNodes.unshift(firstLayerNode);
+    } else if (firstLayerIndex === -1) {
+        // 如果第一层节点不在数组中，添加到第一位
+        filteredNodes.unshift(firstLayerNode);
     }
     
-    // 保持原有的连线，不自动添加额外连线
-    const newLinks = [...links];
-    
-    // 只调整连线的方向，确保第一层节点作为源节点
-    const firstLayerId = firstLayerNode.id;
+    // 调整连线的方向，确保第一层节点作为源节点（对于指向第一层节点的连线）
     newLinks.forEach(link => {
-        // 如果连线涉及第一层节点，确保第一层节点是源节点
-        if (link.target === firstLayerId) {
+        // 如果连线指向第一层节点，确保第一层节点是源节点
+        if (link.target === firstLayerId && link.source !== firstLayerId) {
             // 交换源和目标
             const temp = link.source;
             link.source = link.target;
@@ -119,16 +197,16 @@ function ensureSingleFirstLayer(conceptData) {
     });
     
     console.log('第一层节点处理完成:', firstLayerNode.label);
-    console.log('节点数量:', nodes.length);
-    console.log('连线数量:', newLinks.length);
+    console.log('节点数量:', filteredNodes.length, '(删除了', nodes.length - filteredNodes.length, '个L1节点)');
+    console.log('连线数量:', newLinks.length, '(原', links.length, '条)');
     console.log('连线详情:', newLinks.map(link => ({
-        source: nodes.find(n => n.id === link.source)?.label,
-        target: nodes.find(n => n.id === link.target)?.label,
+        source: filteredNodes.find(n => n.id === link.source)?.label || link.source,
+        target: filteredNodes.find(n => n.id === link.target)?.label || link.target,
         label: link.label
     })));
     
     return {
-        nodes: nodes,
+        nodes: filteredNodes,
         links: newLinks,
         metadata: conceptData.metadata || {}
     };
@@ -349,39 +427,37 @@ function convertTriplesToConceptData(triples) {
     triples.forEach((triple, index) => {
         const { source, target, layer } = triple;
         
-        // 根据层级关系，确定源节点和目标节点的层级
+        // 根据层级关系，确定源节点和目标节点的层级（支持任意层数）
         let sourceLayer = null;
         let targetLayer = null;
         
-        // ⚠️ 只接受正向连接（从高层到低层：L1→L2、L2→L3、L3→L4）
-        if (layer === 'L1-L2') {
-            sourceLayer = 1;
-            targetLayer = 2;
-        } else if (layer === 'L2-L3') {
-            sourceLayer = 2;
-            targetLayer = 3;
-        } else if (layer === 'L3-L4') {
-            sourceLayer = 3;
-            targetLayer = 4;
-        } else if (layer === 'L2-L1' || layer === 'L3-L2' || layer === 'L4-L3' || 
-                   layer === 'L3-L1' || layer === 'L4-L1' || layer === 'L4-L2') {
-            // ❌ 拒绝所有反向连接和跨层反向连接
-            console.warn(`❌ 拒绝反向连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
-            console.warn(`   反向连接违反了层次结构规则，已跳过此三元组`);
+        // 匹配格式：L数字-L数字（如L1-L2、L2-L3、L3-L4、L4-L5等）
+        const layerPattern = /^L(\d+)-L(\d+)$/;
+        const match = layer.trim().match(layerPattern);
+        
+        if (!match) {
+            console.warn(`⚠️ 无效的层级标记格式"${layer}"，跳过三元组: (${source}, ${triple.relation}, ${target})`);
             return; // 跳过此三元组
-        } else if (layer === 'L1-L1' || layer === 'L2-L2' || layer === 'L3-L3' || layer === 'L4-L4') {
-            // ❌ 拒绝所有同层连接
-            console.warn(`❌ 拒绝同层连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
-            console.warn(`   同层连接违反了层次结构规则，已跳过此三元组`);
-            return; // 跳过此三元组
-        } else if (layer === 'L1-L3' || layer === 'L1-L4' || layer === 'L2-L4') {
-            // ❌ 拒绝所有跨层连接
-            console.warn(`❌ 拒绝跨层连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
-            console.warn(`   跨层连接违反了层次结构规则，已跳过此三元组`);
-            return; // 跳过此三元组
-        } else {
-            // 未知的层级标记
-            console.warn(`⚠️ 未知的层级标记"${layer}"，跳过三元组: (${source}, ${triple.relation}, ${target})`);
+        }
+        
+        sourceLayer = parseInt(match[1]);
+        targetLayer = parseInt(match[2]);
+        
+        // ⚠️ 只接受正向相邻层连接（从高层到低层，且必须相邻：L1→L2、L2→L3、L3→L4、L4→L5等）
+        if (targetLayer !== sourceLayer + 1) {
+            if (targetLayer < sourceLayer) {
+                // ❌ 拒绝反向连接
+                console.warn(`❌ 拒绝反向连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
+                console.warn(`   反向连接违反了层次结构规则，已跳过此三元组`);
+            } else if (targetLayer === sourceLayer) {
+                // ❌ 拒绝同层连接
+                console.warn(`❌ 拒绝同层连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
+                console.warn(`   同层连接违反了层次结构规则，已跳过此三元组`);
+            } else {
+                // ❌ 拒绝跨层连接
+                console.warn(`❌ 拒绝跨层连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
+                console.warn(`   跨层连接违反了层次结构规则，已跳过此三元组`);
+            }
             return; // 跳过此三元组
         }
         
@@ -443,29 +519,39 @@ function convertTriplesToConceptData(triples) {
         allNodes.add(triple.source);
         allNodes.add(triple.target);
     });
+    
+    // 找到最大层级，用于默认分配
+    let maxLayer = 1;
+    nodeLayerMap.forEach((layer) => {
+        if (layer > maxLayer) maxLayer = layer;
+    });
+    
     allNodes.forEach(nodeName => {
         if (!nodeLayerMap.has(nodeName)) {
-            console.warn(`⚠️ 节点"${nodeName}"没有明确的层级，默认分配到L4`);
-            nodeLayerMap.set(nodeName, 4);
+            console.warn(`⚠️ 节点"${nodeName}"没有明确的层级，默认分配到L${maxLayer}`);
+            nodeLayerMap.set(nodeName, maxLayer);
         }
     });
     
-    // 创建最终的层级集合（用于日志输出和兼容性）
-    const layer1Nodes = new Set();
-    const layer2Nodes = new Set();
-    const layer3Nodes = new Set();
-    const layer4Nodes = new Set();
+    // 创建动态层级集合（支持任意层数）
+    const layerNodesMap = new Map(); // layer -> Set of node names
     
     nodeLayerMap.forEach((layer, nodeName) => {
-        if (layer === 1) layer1Nodes.add(nodeName);
-        else if (layer === 2) layer2Nodes.add(nodeName);
-        else if (layer === 3) layer3Nodes.add(nodeName);
-        else if (layer === 4) layer4Nodes.add(nodeName);
+        if (!layerNodesMap.has(layer)) {
+            layerNodesMap.set(layer, new Set());
+        }
+        layerNodesMap.get(layer).add(nodeName);
     });
     
     // 如果没有明确的层次信息，尝试从三元组中推断
+    const layer1Nodes = layerNodesMap.get(1) || new Set();
     if (layer1Nodes.size === 0 && currentKeyword) {
         layer1Nodes.add(currentKeyword);
+        if (!layerNodesMap.has(1)) {
+            layerNodesMap.set(1, new Set());
+        }
+        layerNodesMap.get(1).add(currentKeyword);
+        nodeLayerMap.set(currentKeyword, 1);
     }
     
     // 如果还是没有第一层节点，从出现频率最高的概念中选择
@@ -486,155 +572,55 @@ function convertTriplesToConceptData(triples) {
         });
         
         if (topConcept) {
-            layer1Nodes.add(topConcept);
+            if (!layerNodesMap.has(1)) {
+                layerNodesMap.set(1, new Set());
+            }
+            layerNodesMap.get(1).add(topConcept);
+            nodeLayerMap.set(topConcept, 1);
             currentKeyword = topConcept;
         }
     }
     
+    // 动态输出所有层级的节点
     console.log('层次分配结果:');
-    console.log('  第一层节点:', Array.from(layer1Nodes));
-    console.log('  第二层节点:', Array.from(layer2Nodes));
-    console.log('  第三层节点:', Array.from(layer3Nodes));
-    console.log('  第四层节点:', Array.from(layer4Nodes));
+    const sortedLayers = Array.from(layerNodesMap.keys()).sort((a, b) => a - b);
+    sortedLayers.forEach(layer => {
+        const nodes = Array.from(layerNodesMap.get(layer));
+        console.log(`  L${layer}层节点:`, nodes);
+    });
     
-    // ⚠️ 验证并限制每层节点数量（L2、L3、L4层必须是4、5或6个节点中的一个，且三层之间不能重复）
-    const MIN_NODES_PER_LAYER = 4; // 每层最少4个节点
-    const MAX_NODES_PER_LAYER = 6; // 每层最多6个节点
-    
-    // ⚠️⚠️⚠️ 强制确保第一层只有1个节点（最重要！）
-    if (layer1Nodes.size > 1) {
-        console.warn(`⚠️⚠️⚠️ 第一层节点数量超过限制！当前: ${layer1Nodes.size}个，限制: 1个`);
-        console.warn('   L1层必须只有1个节点（焦点问题核心概念），现在强制只保留第1个节点');
-        
-        // 只保留第一个节点，其他的降级到L2
-        const nodesToKeep = Array.from(layer1Nodes).slice(0, 1);
-        const nodesToDemote = Array.from(layer1Nodes).slice(1);
-        
-        nodesToDemote.forEach(node => {
-            layer1Nodes.delete(node);
-            // 将多余的L1节点降级到L2
-            layer2Nodes.add(node);
-            nodeLayerMap.set(node, 2); // 改为L2
-            console.warn(`   × L1节点"${node}"降级为L2节点`);
-        });
-        
-        console.warn(`   ✓ L1层现在只有 ${layer1Nodes.size} 个节点: ${Array.from(layer1Nodes).join(', ')}`);
-    } else if (layer1Nodes.size === 0) {
-        console.error(`❌ 第一层没有节点！这是严重错误！`);
+    // 确保第一层至少有一个节点
+    if (layer1Nodes.size === 0) {
+        console.warn(`⚠️ 第一层没有节点，尝试从焦点问题或L2中提升一个`);
         // 如果L1层没有节点，从焦点问题或L2中提升一个
         if (currentKeyword) {
-            layer1Nodes.add(currentKeyword);
+            if (!layerNodesMap.has(1)) {
+                layerNodesMap.set(1, new Set());
+            }
+            layerNodesMap.get(1).add(currentKeyword);
             nodeLayerMap.set(currentKeyword, 1);
             console.warn(`   ✓ 使用焦点问题作为L1节点: ${currentKeyword}`);
+        } else {
+            const layer2Nodes = layerNodesMap.get(2) || new Set();
+            if (layer2Nodes.size > 0) {
+                const firstL2Node = Array.from(layer2Nodes)[0];
+                layer2Nodes.delete(firstL2Node);
+                if (!layerNodesMap.has(1)) {
+                    layerNodesMap.set(1, new Set());
+                }
+                layerNodesMap.get(1).add(firstL2Node);
+                nodeLayerMap.set(firstL2Node, 1);
+                console.warn(`   ✓ 将L2节点"${firstL2Node}"提升为L1节点`);
+            }
         }
     }
     
-    // 🔴🔴🔴 检查是否有任何一层的节点数量超过6，如果有，应用新规则重新分配
-    const layer2Count = layer2Nodes.size;
-    const layer3Count = layer3Nodes.size;
-    const layer4Count = layer4Nodes.size;
-    const hasLayerExceeding6 = layer2Count > MAX_NODES_PER_LAYER || layer3Count > MAX_NODES_PER_LAYER || layer4Count > MAX_NODES_PER_LAYER;
-    
-    if (hasLayerExceeding6) {
-        console.warn(`⚠️ 检测到有层级节点数量超过6个，应用新规则重新分配:`);
-        console.warn(`   当前分布: L2=${layer2Count}个, L3=${layer3Count}个, L4=${layer4Count}个`);
-        
-        // 🔴🔴🔴 新规则：当节点数量超过6时，按照以下规则分配：
-        // 1. 第一层：1个节点（不变）
-        // 2. 第二层：从{4, 5, 6}中随机挑选一个
-        // 3. 第三层：从剩下的两个数中选一个
-        // 4. 第四层：使用最后一个数字
-        const availableNumbers = [4, 5, 6];
-        
-        // 随机打乱数组
-        const shuffled = [...availableNumbers].sort(() => Math.random() - 0.5);
-        
-        // 第二层：从{4, 5, 6}中随机挑选一个
-        const targetL2 = shuffled[0];
-        const remainingForL3 = shuffled.slice(1); // 剩下的两个数
-        
-        // 第三层：从剩下的两个数中随机选一个
-        const targetL3 = remainingForL3[Math.floor(Math.random() * remainingForL3.length)];
-        
-        // 第四层：使用最后一个数字
-        const targetL4 = remainingForL3.find(num => num !== targetL3);
-        
-        console.warn(`   新分配: L2=${targetL2}个, L3=${targetL3}个, L4=${targetL4}个`);
-        
-        // 应用新规则：裁剪各层节点到目标数量
-        const layer2Array = Array.from(layer2Nodes);
-        const layer3Array = Array.from(layer3Nodes);
-        const layer4Array = Array.from(layer4Nodes);
-        
-        // 裁剪L2层
-        if (layer2Array.length > targetL2) {
-            const nodesToRemove = layer2Array.slice(targetL2);
-            nodesToRemove.forEach(node => {
-                layer2Nodes.delete(node);
-                nodeLayerMap.delete(node);
-                console.warn(`   × 移除L2节点: ${node}`);
-            });
-        }
-        
-        // 裁剪L3层
-        if (layer3Array.length > targetL3) {
-            const nodesToRemove = layer3Array.slice(targetL3);
-            nodesToRemove.forEach(node => {
-                layer3Nodes.delete(node);
-                nodeLayerMap.delete(node);
-                console.warn(`   × 移除L3节点: ${node}`);
-            });
-        }
-        
-        // 裁剪L4层
-        if (layer4Array.length > targetL4) {
-            const nodesToRemove = layer4Array.slice(targetL4);
-            nodesToRemove.forEach(node => {
-                layer4Nodes.delete(node);
-                nodeLayerMap.delete(node);
-                console.warn(`   × 移除L4节点: ${node}`);
-            });
-        }
-        
-        console.warn(`   ✅ 重新分配完成: L2=${layer2Nodes.size}个, L3=${layer3Nodes.size}个, L4=${layer4Nodes.size}个`);
-    } else {
-        // 如果没有超过6，只进行常规检查和警告
-        // 检查并限制第二层节点数量（必须是4、5或6个节点）
-        if (layer2Count < MIN_NODES_PER_LAYER) {
-            console.warn(`⚠️ 第二层节点数量不足！当前: ${layer2Count}个，要求: 至少${MIN_NODES_PER_LAYER}个`);
-        } else if (layer2Count !== 4 && layer2Count !== 5 && layer2Count !== 6) {
-            console.warn(`⚠️ 第二层节点数量不符合要求！当前: ${layer2Count}个，要求: 严格等于4、5或6个`);
-        }
-        
-        // 检查并限制第三层节点数量（必须是4、5或6个节点）
-        if (layer3Count < MIN_NODES_PER_LAYER) {
-            console.warn(`⚠️ 第三层节点数量不足！当前: ${layer3Count}个，要求: 至少${MIN_NODES_PER_LAYER}个`);
-        } else if (layer3Count !== 4 && layer3Count !== 5 && layer3Count !== 6) {
-            console.warn(`⚠️ 第三层节点数量不符合要求！当前: ${layer3Count}个，要求: 严格等于4、5或6个`);
-        }
-        
-        // 检查并限制第四层节点数量（必须是4、5或6个节点）
-        if (layer4Count < MIN_NODES_PER_LAYER) {
-            console.warn(`⚠️ 第四层节点数量不足！当前: ${layer4Count}个，要求: 至少${MIN_NODES_PER_LAYER}个`);
-        } else if (layer4Count !== 4 && layer4Count !== 5 && layer4Count !== 6) {
-            console.warn(`⚠️ 第四层节点数量不符合要求！当前: ${layer4Count}个，要求: 严格等于4、5或6个`);
-        }
-        
-        // 检查L2、L3、L4三层之间节点数量是否重复（理想情况下应该不重复）
-        const layerCounts = [layer2Count, layer3Count, layer4Count];
-        const uniqueCounts = new Set(layerCounts);
-        if (uniqueCounts.size < 3 && layer2Count >= MIN_NODES_PER_LAYER && layer2Count <= MAX_NODES_PER_LAYER &&
-            layer3Count >= MIN_NODES_PER_LAYER && layer3Count <= MAX_NODES_PER_LAYER &&
-            layer4Count >= MIN_NODES_PER_LAYER && layer4Count <= MAX_NODES_PER_LAYER) {
-            console.warn(`⚠️ L2、L3、L4三层节点数量有重复: L2=${layer2Count}, L3=${layer3Count}, L4=${layer4Count}（理想情况下应该不重复）`);
-        }
-    }
-    
-    console.log('节点数量限制验证完成:');
-    console.log(`  L1层: ${layer1Nodes.size}个 (要求: 严格等于1)`);
-    console.log(`  L2层: ${layer2Nodes.size}个 (要求: 严格等于4、5或6)`);
-    console.log(`  L3层: ${layer3Nodes.size}个 (要求: 严格等于4、5或6)`);
-    console.log(`  L4层: ${layer4Nodes.size}个 (要求: 严格等于4、5或6)`);
+    // 动态输出层级统计
+    console.log('节点层级分配完成:');
+    sortedLayers.forEach(layer => {
+        const count = layerNodesMap.get(layer).size;
+        console.log(`  L${layer}层: ${count}个`);
+    });
     
     // 辅助函数：获取节点的最终层级（简化版，直接使用nodeLayerMap）
     const getNodeLayer = (nodeName) => {
@@ -643,9 +629,10 @@ function convertTriplesToConceptData(triples) {
             return nodeLayerMap.get(nodeName);
         }
         
-        // 如果节点不在映射中，说明它不在任何三元组中，默认分配到L4
-        console.warn(`⚠️ 节点"${nodeName}"不在层级映射中，默认分配到L4`);
-        return 4;
+        // 如果节点不在映射中，说明它不在任何三元组中，默认分配到最大层级
+        const maxLayer = Math.max(...Array.from(nodeLayerMap.values()), 1);
+        console.warn(`⚠️ 节点"${nodeName}"不在层级映射中，默认分配到L${maxLayer}`);
+        return maxLayer;
     };
     
     // 过滤掉包含被移除节点的三元组
@@ -664,58 +651,85 @@ function convertTriplesToConceptData(triples) {
     
     console.log(`过滤后的三元组数量: ${validTriples.length}/${triples.length}`);
     
-    // 处理所有有效三元组
-    validTriples.forEach((triple, index) => {
-        const { source, relation, target, layer } = triple;
-        
-        // 添加源节点
-        if (!nodeMap.has(source)) {
-            const sourceLayer = getNodeLayer(source);
-            nodeMap.set(source, nodeId.toString());
-            nodeLayerMap.set(source, sourceLayer);
+    // 🔴🔴🔴 关键改进：先收集所有唯一节点，避免重复创建
+    const uniqueNodeNames = new Set();
+    validTriples.forEach(triple => {
+        uniqueNodeNames.add(triple.source.trim());
+        uniqueNodeNames.add(triple.target.trim());
+    });
+    
+    // 先创建所有唯一节点
+    uniqueNodeNames.forEach(nodeName => {
+        if (!nodeMap.has(nodeName)) {
+            const nodeLayer = getNodeLayer(nodeName);
+            nodeMap.set(nodeName, nodeId.toString());
             
             nodes.push({
                 id: nodeId.toString(),
-                label: source,
-                type: sourceLayer === 1 ? 'main' : (sourceLayer === 2 ? 'core' : 'detail'),
-                description: `从文本中提取的概念: ${source}`,
-                importance: sourceLayer === 1 ? 10 : (sourceLayer === 2 ? 8 : 6),
-                layer: sourceLayer
+                label: nodeName,
+                type: nodeLayer === 1 ? 'main' : (nodeLayer === 2 ? 'core' : 'detail'),
+                description: `从文本中提取的概念: ${nodeName}`,
+                importance: nodeLayer === 1 ? 10 : (nodeLayer === 2 ? 8 : 6),
+                layer: nodeLayer
             });
             nodeId++;
         }
+    });
+    
+    // 处理所有有效三元组，创建连线
+    let linkIndex = 0;
+    validTriples.forEach((triple, index) => {
+        const { source, relation, target, layer } = triple;
         
-        // 添加目标节点
-        if (!nodeMap.has(target)) {
-            const targetLayer = getNodeLayer(target);
-            nodeMap.set(target, nodeId.toString());
-            nodeLayerMap.set(target, targetLayer);
-            
-            nodes.push({
-                id: nodeId.toString(),
-                label: target,
-                type: targetLayer === 1 ? 'main' : (targetLayer === 2 ? 'core' : 'detail'),
-                description: `从文本中提取的概念: ${target}`,
-                importance: targetLayer === 1 ? 10 : (targetLayer === 2 ? 8 : 6),
-                layer: targetLayer
-            });
-            nodeId++;
+        // 确保节点已存在（应该已经在上一步创建）
+        const sourceId = nodeMap.get(source.trim());
+        const targetId = nodeMap.get(target.trim());
+        
+        if (!sourceId || !targetId) {
+            console.warn(`⚠️ 跳过三元组（节点未找到）: (${source}, ${relation}, ${target})`);
+            return;
+        }
+        
+        // 🔴🔴🔴 再次验证：确保源节点和目标节点的实际层级满足要求（禁止同层连接）
+        const sourceLayer = getNodeLayer(source.trim());
+        const targetLayer = getNodeLayer(target.trim());
+        
+        // 禁止同层连接
+        if (sourceLayer === targetLayer) {
+            console.warn(`❌ 最终过滤：拒绝同层连接 (${source}[L${sourceLayer}] -> ${target}[L${targetLayer}])`);
+            console.warn(`   连接词: "${relation}"，同层连接违反层次结构规则，已跳过`);
+            return;
+        }
+        
+        // 禁止反向连接（从低层到高层）
+        if (sourceLayer > targetLayer) {
+            console.warn(`❌ 最终过滤：拒绝反向连接 (${source}[L${sourceLayer}] -> ${target}[L${targetLayer}])`);
+            console.warn(`   连接词: "${relation}"，反向连接违反层次结构规则，已跳过`);
+            return;
+        }
+        
+        // 禁止跨层连接（非相邻层）
+        if (targetLayer !== sourceLayer + 1) {
+            console.warn(`❌ 最终过滤：拒绝跨层连接 (${source}[L${sourceLayer}] -> ${target}[L${targetLayer}])`);
+            console.warn(`   连接词: "${relation}"，跨层连接违反层次结构规则，已跳过`);
+            return;
         }
         
         // 添加关系连线
         const newLink = {
-            id: `link-${index}`,
-            source: nodeMap.get(source),
-            target: nodeMap.get(target),
+            id: `link-${linkIndex}`,
+            source: sourceId,
+            target: targetId,
             label: relation,
             type: 'relation',
             strength: 6,
             layer: layer || ''
         };
         links.push(newLink);
-        console.log(`添加连线 #${index}:`, {
-            source: source,
-            target: target,
+        linkIndex++;
+        console.log(`✓ 添加连线 #${linkIndex}:`, {
+            source: `${source}[L${sourceLayer}]`,
+            target: `${target}[L${targetLayer}]`,
             relation: relation,
             layer: layer,
             sourceId: newLink.source,
@@ -731,171 +745,17 @@ function convertTriplesToConceptData(triples) {
         return a.importance - b.importance;
     });
     
-    // ⚠️ 严格限制节点数量：最少13个，最多19个（1+6+6+6=19，考虑随机4、5、6的组合）
-    // L1层：1个节点
-    // L2、L3、L4层：每层必须是4、5、6中的一个，且三层之间不能重复
-    const MAX_NODES = 19;
-    const MIN_NODES = 13;
-    const MIN_LAYER_NODES = 4; // 每层最少4个节点
-    const MAX_LAYER_NODES = 6; // 每层最多6个节点
+    // 输出节点统计信息（动态统计所有层级）
+    const layerCounts = new Map();
+    nodes.forEach(node => {
+        const layer = node.layer || 1;
+        layerCounts.set(layer, (layerCounts.get(layer) || 0) + 1);
+    });
     
-    if (nodes.length > MAX_NODES) {
-        console.warn(`⚠️ 节点数量超标: ${nodes.length}个 > ${MAX_NODES}个，将进行裁剪`);
-        
-        // 保留第一层（L1）的所有节点
-        const layer1NodesArray = nodes.filter(n => n.layer === 1);
-        const layer2NodesArray = nodes.filter(n => n.layer === 2);
-        const layer3NodesArray = nodes.filter(n => n.layer === 3);
-        const layer4NodesArray = nodes.filter(n => n.layer === 4);
-        
-        console.log(`  原始分布: L1=${layer1NodesArray.length}, L2=${layer2NodesArray.length}, L3=${layer3NodesArray.length}, L4=${layer4NodesArray.length}`);
-        
-        // 🔴🔴🔴 新规则：当节点数量超过限制时，按照以下规则分配：
-        // 1. 第一层：1个节点（不变）
-        // 2. 第二层：从{4, 5, 6}中随机挑选一个
-        // 3. 第三层：从剩下的两个数中选一个
-        // 4. 第四层：使用最后一个数字
-        const availableNumbers = [4, 5, 6];
-        
-        // 随机打乱数组
-        const shuffled = [...availableNumbers].sort(() => Math.random() - 0.5);
-        
-        // 第二层：从{4, 5, 6}中随机挑选一个
-        const targetL2 = shuffled[0];
-        const remainingForL3 = shuffled.slice(1); // 剩下的两个数
-        
-        // 第三层：从剩下的两个数中随机选一个
-        const targetL3 = remainingForL3[Math.floor(Math.random() * remainingForL3.length)];
-        
-        // 第四层：使用最后一个数字
-        const targetL4 = remainingForL3.find(num => num !== targetL3);
-        
-        console.log(`  🔴 应用新规则分配节点数量:`);
-        console.log(`    L1层: ${layer1NodesArray.length}个（保持不变）`);
-        console.log(`    L2层: ${targetL2}个（从{4, 5, 6}中随机选择）`);
-        console.log(`    L3层: ${targetL3}个（从剩余{${remainingForL3.join(', ')}}中选择）`);
-        console.log(`    L4层: ${targetL4}个（使用最后一个数字）`);
-        console.log(`    总计: ${layer1NodesArray.length + targetL2 + targetL3 + targetL4}个节点`);
-        
-        // 验证分配结果
-        if (targetL2 === targetL3 || targetL2 === targetL4 || targetL3 === targetL4) {
-            console.error(`❌ 节点数量分配错误！L2=${targetL2}, L3=${targetL3}, L4=${targetL4}，存在重复！`);
-        }
-        if (targetL2 < 4 || targetL2 > 6 || targetL3 < 4 || targetL3 > 6 || targetL4 < 4 || targetL4 > 6) {
-            console.error(`❌ 节点数量分配错误！所有层必须在4-6之间！`);
-        }
-        
-        // 裁剪节点（保留重要度高的）
-        const selectedL2 = layer2NodesArray.slice(0, targetL2);
-        const selectedL3 = layer3NodesArray.slice(0, targetL3);
-        const selectedL4 = layer4NodesArray.slice(0, targetL4);
-        
-        // 记录被移除的节点ID
-        const removedNodeIds = new Set();
-        nodes.forEach(node => {
-            if (node.layer === 2 && !selectedL2.includes(node)) {
-                removedNodeIds.add(node.id);
-            }
-            if (node.layer === 3 && !selectedL3.includes(node)) {
-                removedNodeIds.add(node.id);
-            }
-            if (node.layer === 4 && !selectedL4.includes(node)) {
-                removedNodeIds.add(node.id);
-            }
-        });
-        
-        // 更新节点列表
-        nodes.length = 0;
-        nodes.push(...layer1NodesArray, ...selectedL2, ...selectedL3, ...selectedL4);
-        
-        // 移除与被删除节点相关的连线
-        const filteredLinks = links.filter(link => {
-            const sourceNode = nodes.find(n => n.id === link.source);
-            const targetNode = nodes.find(n => n.id === link.target);
-            return sourceNode && targetNode;
-        });
-        links.length = 0;
-        links.push(...filteredLinks);
-        
-        console.log(`✅ 裁剪完成: L1=${layer1NodesArray.length}, L2=${selectedL2.length}, L3=${selectedL3.length}, L4=${selectedL4.length}, 总计=${nodes.length}个节点`);
-        console.log(`   移除了${removedNodeIds.size}个节点, ${links.length}条连线保留`);
-        
-        // 检查每层节点数是否符合要求（必须是4、5或6个，不能是其他数字）
-        if (selectedL2.length !== 4 && selectedL2.length !== 5 && selectedL2.length !== 6) {
-            console.warn(`⚠️ L2层节点数不符合要求: ${selectedL2.length}个（要求严格等于4、5或6个）`);
-        }
-        if (selectedL3.length !== 4 && selectedL3.length !== 5 && selectedL3.length !== 6) {
-            console.warn(`⚠️ L3层节点数不符合要求: ${selectedL3.length}个（要求严格等于4、5或6个）`);
-        }
-        if (selectedL4.length !== 4 && selectedL4.length !== 5 && selectedL4.length !== 6) {
-            console.warn(`⚠️ L4层节点数不符合要求: ${selectedL4.length}个（要求严格等于4、5或6个）`);
-        }
-        
-        // 检查三层之间是否有重复（理想情况下应该不重复）
-        const layerCounts = [selectedL2.length, selectedL3.length, selectedL4.length];
-        const uniqueCounts = new Set(layerCounts);
-        if (uniqueCounts.size < 3) {
-            console.warn(`⚠️ L2、L3、L4三层节点数量有重复: L2=${selectedL2.length}, L3=${selectedL3.length}, L4=${selectedL4.length}（理想情况下应该不重复）`);
-        }
-    } else if (nodes.length < MIN_NODES) {
-        console.warn(`⚠️ 节点数量不足: ${nodes.length}个 < ${MIN_NODES}个`);
-        
-        // 检查各层节点数
-        const layer1Count = nodes.filter(n => n.layer === 1).length;
-        const layer2Count = nodes.filter(n => n.layer === 2).length;
-        const layer3Count = nodes.filter(n => n.layer === 3).length;
-        const layer4Count = nodes.filter(n => n.layer === 4).length;
-        
-        console.log(`  当前分布: L1=${layer1Count}, L2=${layer2Count}, L3=${layer3Count}, L4=${layer4Count}`);
-        
-        if (layer2Count < MIN_LAYER_NODES) {
-            console.warn(`  ⚠️ L2层节点不足: ${layer2Count}个 < ${MIN_LAYER_NODES}个`);
-        }
-        if (layer3Count < MIN_LAYER_NODES) {
-            console.warn(`  ⚠️ L3层节点不足: ${layer3Count}个 < ${MIN_LAYER_NODES}个`);
-        }
-        if (layer4Count < MIN_LAYER_NODES) {
-            console.warn(`  ⚠️ L4层节点不足: ${layer4Count}个 < ${MIN_LAYER_NODES}个`);
-        }
-    } else {
-        console.log(`✅ 节点数量合格: ${nodes.length}个节点（13-19个范围内）`);
-        
-        // 检查各层节点数
-        const layer1Count = nodes.filter(n => n.layer === 1).length;
-        const layer2Count = nodes.filter(n => n.layer === 2).length;
-        const layer3Count = nodes.filter(n => n.layer === 3).length;
-        const layer4Count = nodes.filter(n => n.layer === 4).length;
-        
-        console.log(`  各层分布: L1=${layer1Count}, L2=${layer2Count}, L3=${layer3Count}, L4=${layer4Count}`);
-        
-        // 验证每层节点数是否符合要求（必须是4、5或6个，不能是其他数字）
-        if (layer2Count !== 4 && layer2Count !== 5 && layer2Count !== 6) {
-            console.warn(`  ⚠️ L2层节点数不符合要求: ${layer2Count}个（要求严格等于4、5或6个）`);
-        } else {
-            console.log(`  ✅ L2层节点数合格: ${layer2Count}个`);
-        }
-        
-        if (layer3Count !== 4 && layer3Count !== 5 && layer3Count !== 6) {
-            console.warn(`  ⚠️ L3层节点数不符合要求: ${layer3Count}个（要求严格等于4、5或6个）`);
-        } else {
-            console.log(`  ✅ L3层节点数合格: ${layer3Count}个`);
-        }
-        
-        if (layer4Count !== 4 && layer4Count !== 5 && layer4Count !== 6) {
-            console.warn(`  ⚠️ L4层节点数不符合要求: ${layer4Count}个（要求严格等于4、5或6个）`);
-        } else {
-            console.log(`  ✅ L4层节点数合格: ${layer4Count}个`);
-        }
-        
-        // 检查三层之间是否有重复（理想情况下应该不重复）
-        const layerCounts = [layer2Count, layer3Count, layer4Count];
-        const uniqueCounts = new Set(layerCounts);
-        if (uniqueCounts.size < 3) {
-            console.warn(`  ⚠️ L2、L3、L4三层节点数量有重复: L2=${layer2Count}, L3=${layer3Count}, L4=${layer4Count}（理想情况下应该不重复）`);
-        } else {
-            console.log(`  ✅ L2、L3、L4三层节点数量不重复: L2=${layer2Count}, L3=${layer3Count}, L4=${layer4Count}`);
-        }
-    }
+    console.log(`✅ 节点处理完成: 总计${nodes.length}个节点`);
+    const sortedLayersForStats = Array.from(layerCounts.keys()).sort((a, b) => a - b);
+    const layerStats = sortedLayersForStats.map(layer => `L${layer}=${layerCounts.get(layer)}`).join(', ');
+    console.log(`  各层分布: ${layerStats}`);
     
     // 重新分配节点ID，确保第一层节点的ID最小
     const oldToNewIdMap = new Map();
@@ -916,25 +776,26 @@ function convertTriplesToConceptData(triples) {
         nodes: nodes,
         links: links,
         metadata: {
-            summary: `基于AI介绍内容提取的 ${triples.length} 个三元组构建的三层概念图`,
+            summary: `基于AI介绍内容提取的 ${triples.length} 个三元组构建的分层概念图`,
             domain: 'AI介绍分析',
             source: 'AI介绍内容',
             tripleCount: triples.length,
             keyword: currentKeyword,
-            layerInfo: {
-                layer1Count: layer1Nodes.size,
-                layer2Count: layer2Nodes.size,
-                layer3Count: layer3Nodes.size,
-                layer4Count: layer4Nodes.size
-            }
+            layerInfo: (() => {
+                const info = {};
+                sortedLayers.forEach(layer => {
+                    info[`layer${layer}Count`] = layerNodesMap.get(layer).size;
+                });
+                return info;
+            })()
         }
     };
     
     console.log('转换完成的概念图数据:', conceptData);
-    console.log('  第一层节点数:', layer1Nodes.size);
-    console.log('  第二层节点数:', layer2Nodes.size);
-    console.log('  第三层节点数:', layer3Nodes.size);
-    console.log('  第四层节点数:', layer4Nodes.size);
+    sortedLayers.forEach(layer => {
+        const count = layerNodesMap.get(layer).size;
+        console.log(`  L${layer}层节点数: ${count}`);
+    });
     
     // 打印每个节点的layer属性，用于调试
     console.log('节点layer属性详情:');
@@ -1035,13 +896,13 @@ function calculateTextDimensions(text, fontSize = '16', fontFamily = 'Arial, san
  * @param {number} padding - 内边距
  * @returns {Object} 节点尺寸
  */
-function calculateNodeDimensions(nodeLabel, minWidth = 80, minHeight = 40, padding = 15) {
+function calculateNodeDimensions(nodeLabel, minWidth = 80, minHeight = 40, padding = 16) {
     if (!nodeLabel || nodeLabel.trim() === '') {
         return { width: minWidth, height: minHeight };
     }
     
-    // 计算文字尺寸（缩小字体）
-    const textDimensions = calculateTextDimensions(nodeLabel, '12', 'Arial, sans-serif');
+    // 计算文字尺寸（放大字体）
+    const textDimensions = calculateTextDimensions(nodeLabel, '13', 'Arial, sans-serif');
     
     // 计算节点尺寸（文字尺寸 + 内边距）
     const nodeWidth = Math.max(minWidth, textDimensions.width + padding);

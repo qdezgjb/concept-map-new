@@ -8,33 +8,17 @@
 
 // applyAutoLayout
 async function applyAutoLayout() {
-        if (!currentGraphData) return;
-        
-        showMessage('正在应用智能布局...', 'info');
-        
-        try {
-            // 应用智能布局算法
-            const optimizedGraph = applyIntelligentLayout(currentGraphData);
-            
-            if (optimizedGraph) {
-                // 更新当前图形数据
-                currentGraphData = optimizedGraph;
-                window.currentGraphData = currentGraphData;
-                
-                // 重新绘制图形
-                drawGraph(currentGraphData);
-                
-                // 更新状态栏
-                updateStatusBar(currentGraphData);
-                
-                showMessage('智能布局应用成功！', 'success');
-            } else {
-                showMessage('布局优化失败', 'warning');
-            }
-        } catch (error) {
-            showMessage('布局优化失败: ' + error.message, 'error');
-            console.error('布局优化失败:', error);
+        if (!currentGraphData) {
+            showMessage('没有可用的图形数据', 'warning');
+            return;
         }
+        
+        // 根据当前选择的布局类型应用对应的布局算法
+        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        console.log('自动布局，使用布局类型:', selectedLayout);
+        
+        // 直接调用 changeLayout 函数，它会根据选择的布局类型应用对应的算法
+        changeLayout(selectedLayout);
     }
 
 // applyHierarchicalLayout - 应用层次布局（Sugiyama算法）
@@ -56,14 +40,33 @@ function applyHierarchicalLayout(graphData) {
 }
 
 // changeLayout
-function changeLayout() {
-        const selectedLayout = window.layoutSelect.value;
-        showMessage(`正在应用${layoutSelect.options[layoutSelect.selectedIndex].text}...`, 'info');
+function changeLayout(layoutType) {
+        // 如果传入了布局类型参数，使用参数；否则从下拉框获取
+        const selectedLayout = layoutType || window.layoutSelect.value;
+        const layoutSelect = window.layoutSelect;
+        const layoutName = layoutSelect ? layoutSelect.options[layoutSelect.selectedIndex].text : selectedLayout;
         
-        if (!currentGraphData) {
-            showMessage('没有可用的图形数据', 'warning');
+        console.log('切换布局:', selectedLayout, '布局名称:', layoutName);
+        
+        // 检查是否正在生成概念图
+        if (window.isGenerating) {
+            console.log('changeLayout: 正在生成概念图中，布局选项已保存，将在生成完成后应用');
+            // 不执行布局切换，但保存用户的选择，在生成完成后会自动应用
             return;
         }
+        
+        // 检查是否有可用的图形数据
+        if (!currentGraphData || !currentGraphData.nodes || currentGraphData.nodes.length === 0) {
+            // 只在调试模式下记录，不显示警告
+            // 这是正常情况：用户可能只是想切换布局选项，还没有生成概念图
+            // 或者在生成过程中切换了布局选项
+            if (console.debug) {
+                console.debug('changeLayout: 没有可用的图形数据，跳过布局切换（这是正常情况）');
+            }
+            return;
+        }
+        
+        showMessage(`正在应用${layoutName}...`, 'info');
         
         try {
             // 根据选择的布局类型应用不同的算法
@@ -71,16 +74,81 @@ function changeLayout() {
             
             switch (selectedLayout) {
                 case 'force':
-                    // 力导向布局
-                    optimizedGraph = applyForceDirectedLayoutOnly(currentGraphData);
+                    // 力导向布局 - 使用 force-directed-layout.js 中的算法
+                    console.log('应用力导向布局算法...');
+                    console.log('当前图形数据节点数:', currentGraphData.nodes.length);
+                    
+                    // 清除节点上的层次布局相关属性，并重置位置以强制重新计算
+                    const cleanedGraphData = {
+                        nodes: currentGraphData.nodes.map(node => {
+                            const cleanedNode = { ...node };
+                            // 清除层次布局相关的属性
+                            delete cleanedNode.layer;
+                            // 清除位置坐标，强制力导向布局重新初始化位置
+                            // 这样可以从头开始计算，而不是基于层次布局的位置
+                            delete cleanedNode.x;
+                            delete cleanedNode.y;
+                            return cleanedNode;
+                        }),
+                        links: [...currentGraphData.links]
+                    };
+                    
+                    if (typeof window.applyForceDirectedLayout === 'function') {
+                        // 获取画布尺寸 - 从 viewBox 获取，而不是屏幕像素尺寸
+                        const svg = document.querySelector('.concept-graph');
+                        let width = 2400; // 默认 viewBox 宽度
+                        let height = 1200; // 默认 viewBox 高度
+                        if (svg) {
+                            const viewBox = svg.getAttribute('viewBox');
+                            if (viewBox) {
+                                const viewBoxParts = viewBox.split(' ');
+                                if (viewBoxParts.length === 4) {
+                                    width = parseFloat(viewBoxParts[2]);
+                                    height = parseFloat(viewBoxParts[3]);
+                                }
+                            }
+                        }
+                        
+                        console.log('调用 applyForceDirectedLayout，使用 viewBox 尺寸:', width, 'x', height);
+                        optimizedGraph = window.applyForceDirectedLayout(cleanedGraphData, {
+                            width: width,
+                            height: height,
+                            iterations: 300,
+                            coolingFactor: 0.95,
+                            linkDistance: 100,
+                            nodeCharge: -300,
+                            nodeSpacing: 60
+                        });
+                        console.log('applyForceDirectedLayout 完成，返回节点数:', optimizedGraph?.nodes?.length);
+                        if (optimizedGraph && optimizedGraph.nodes && optimizedGraph.nodes.length > 0) {
+                            console.log('第一个节点位置:', optimizedGraph.nodes[0].x, optimizedGraph.nodes[0].y);
+                            console.log('最后一个节点位置:', optimizedGraph.nodes[optimizedGraph.nodes.length - 1].x, optimizedGraph.nodes[optimizedGraph.nodes.length - 1].y);
+                        }
+                    } else if (typeof window.applyForceDirectedLayoutOnly === 'function') {
+                        // 回退到项目特定版本
+                        console.warn('applyForceDirectedLayout 未找到，使用 applyForceDirectedLayoutOnly');
+                        optimizedGraph = window.applyForceDirectedLayoutOnly(cleanedGraphData);
+                    } else {
+                        throw new Error('力导向布局算法未加载');
+                    }
                     break;
                 case 'hierarchical':
-                    // Sugiyama布局
-                    optimizedGraph = applyHierarchicalLayout(currentGraphData);
+                    // Sugiyama布局 - 使用 sugiyama-layout.js 中的算法
+                    console.log('应用Sugiyama层次布局算法...');
+                    if (typeof window.applySugiyamaLayout === 'function') {
+                        optimizedGraph = window.applySugiyamaLayout(currentGraphData);
+                    } else {
+                        throw new Error('Sugiyama布局算法未加载');
+                    }
                     break;
                 default:
                     // 默认智能布局
-                    optimizedGraph = applyIntelligentLayout(currentGraphData);
+                    console.log('应用智能布局算法...');
+                    if (typeof window.applyIntelligentLayout === 'function') {
+                        optimizedGraph = window.applyIntelligentLayout(currentGraphData);
+                    } else {
+                        throw new Error('智能布局算法未加载');
+                    }
             }
             
             if (optimizedGraph) {
@@ -94,11 +162,17 @@ function changeLayout() {
                 // 更新状态栏
                 updateStatusBar(currentGraphData);
                 
-                showMessage(`${layoutSelect.options[layoutSelect.selectedIndex].text}应用成功！`, 'success');
+                // 保存到历史记录
+                saveToHistory(currentGraphData);
+                
+                showMessage(`${layoutName}应用成功！`, 'success');
+                console.log('布局切换完成:', selectedLayout);
+            } else {
+                throw new Error('布局算法返回空结果');
             }
         } catch (error) {
-            showMessage('布局切换失败: ' + error.message, 'error');
             console.error('布局切换失败:', error);
+            showMessage('布局切换失败: ' + error.message, 'error');
         }
     }
 
@@ -389,8 +463,8 @@ function calculateLabelOverlap(labelX, labelY, labelWidth, labelHeight, nodes, l
         
         // 检查与节点的重叠
         nodes.forEach(node => {
-            const nodeWidth = Math.max(100, (node.label || '').length * 12);
-            const nodeHeight = 40;
+            const nodeWidth = Math.max(70, (node.label || '').length * 10);
+            const nodeHeight = 30;
             
             if (rectanglesOverlap(
                 labelX - labelWidth/2, labelY - labelHeight/2, labelWidth, labelHeight,
@@ -443,7 +517,7 @@ function ensureUniformSpacing(nodes, links) {
             
             // 计算所有节点的实际宽度
             const nodeWidths = levelNodes.map(node => {
-                const nodeDimensions = window.calculateNodeDimensions(node.label || '', 80, 40, 15);
+                const nodeDimensions = window.calculateNodeDimensions(node.label || '', 60, 30, 10);
                 return node.width || nodeDimensions.width;
             });
             

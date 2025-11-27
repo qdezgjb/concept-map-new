@@ -41,23 +41,137 @@ body {
 /* 主要内容区域 */
 .main-content {
     display: flex;
+    flex-direction: column;
     flex: 1;
-    gap: 2rem;
-    padding: 2rem;
-    max-width: 1600px;
-    margin: 0 auto;
+    gap: 1.5rem;
+    padding: 1.5rem;
     width: 100%;
-    min-height: 800px;
+    max-width: 100%;
+    margin: 0;
 }
 
-/* 左侧边栏 */
-.sidebar {
-    flex: 0 0 400px;
+/* 顶部功能选择区域（标签页形式） */
+.function-bar {
     background: white;
     border-radius: 12px;
     padding: 1.5rem;
     box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    height: fit-content;
+    width: 100%;
+}
+
+.function-bar-title {
+    color: #2c3e50;
+    margin-bottom: 1.5rem;
+    font-size: 1.3rem;
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 0.5rem;
+}
+
+/* 标签页容器 */
+.function-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 0;
+}
+
+/* 标签页按钮 */
+.function-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #6c757d;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    bottom: -2px;
+    margin-bottom: -2px;
+    border-radius: 8px 8px 0 0;
+    white-space: nowrap;
+}
+
+.function-tab:hover {
+    color: #667eea;
+    background: rgba(102, 126, 234, 0.05);
+}
+
+.function-tab.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    font-weight: 600;
+    box-shadow: 0 -2px 8px rgba(102, 126, 234, 0.1);
+}
+
+.tab-icon {
+    font-size: 1.2rem;
+}
+
+.tab-label {
+    white-space: nowrap;
+}
+
+/* 功能模块内容区域 */
+.function-content-area {
+    position: relative;
+    min-height: 200px;
+}
+
+.function-module {
+    display: none;
+}
+
+.function-module.active {
+    display: block;
+    animation: fadeInModule 0.3s ease-in-out;
+}
+
+@keyframes fadeInModule {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.function-module-header {
+    margin-bottom: 0.5rem;
+}
+
+.function-module-header h3 {
+    color: #2c3e50;
+    margin-bottom: 0.25rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.function-module-desc {
+    color: #6c757d;
+    font-size: 0.9rem;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.function-module-content {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 0.75rem;
+    border: 1px solid #e9ecef;
+}
+
+/* 左侧边栏（保留用于兼容性） */
+.sidebar {
+    display: none; /* 隐藏旧的侧边栏 */
 }
 
 .function-section h2 {
@@ -198,12 +312,12 @@ body {
 }
 
 .input-group {
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
 }
 
 .input-group label {
     display: block;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
     color: #495057;
     font-weight: 500;
 }
@@ -308,63 +422,140 @@ body {
 }
 
 /* 右侧内容区域 */
-.content-area {
-    flex: 1;
+/* 工具栏和控制区域（横向排列） */
+.control-bar {
     background: white;
     border-radius: 12px;
+    padding: 1rem;
     box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    overflow: hidden;
-    min-height: 800px;
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.control-section {
+    flex: 1;
+    min-width: 180px;
     display: flex;
     flex-direction: column;
-}
-
-.graph-container {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-.graph-header {
-    background: #f8f9fa;
-    padding: 1.5rem;
-    border-bottom: 1px solid #e9ecef;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.graph-header h2 {
-    color: #2c3e50;
-    margin: 0;
-}
-
-.graph-controls {
-    display: flex;
     gap: 0.5rem;
 }
 
-/* 新增：编辑工具栏样式 */
-.edit-toolbar {
+.control-section-wide {
+    flex: 2;
+    min-width: 300px;
+}
+
+.control-section h4 {
+    color: #495057;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 0.25rem;
+}
+
+.control-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.control-buttons .btn {
+    width: 100%;
+    justify-content: flex-start;
+}
+
+.process-text-compact {
+    font-size: 0.85rem;
+    color: #6c757d;
+    line-height: 1.5;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 0.5rem;
     background: #f8f9fa;
-    padding: 1rem;
-    border-bottom: 1px solid #e9ecef;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
+    border-radius: 6px;
+}
+
+.intro-text-compact {
+    font-size: 0.85rem;
+    color: #495057;
+    line-height: 1.6;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+/* 概念图展示区域（全宽） */
+.graph-display-area {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    width: 100%;
+    min-height: 600px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.graph-canvas-fullwidth {
+    width: 100%;
+    padding: 5px 20px 20px 20px;
+    background: #f8f9fa;
+    min-height: 1200px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    position: relative;
+    flex: 1;
+    overflow: auto;
+}
+
+.graph-canvas-fullwidth .concept-graph {
+    width: 100%;
+    height: 100%;
+    min-height: 1200px;
+}
+
+/* 保留旧样式用于兼容性 */
+.content-area {
+    display: none; /* 隐藏旧的内容区域 */
+}
+
+.graph-container {
+    display: none; /* 隐藏旧的容器 */
+}
+
+.graph-header {
+    display: none; /* 隐藏旧的头部 */
+}
+
+.graph-controls {
+    display: none; /* 隐藏旧的控制按钮 */
+}
+
+/* 新增：编辑工具栏样式（保留用于兼容性） */
+.edit-toolbar {
+    display: none; /* 隐藏旧的工具栏 */
 }
 
 .toolbar-section {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.75rem;
 }
 
 .toolbar-section h4 {
     color: #495057;
     font-size: 0.9rem;
     font-weight: 600;
-    margin: 0;
+    margin: 0 0 0.25rem 0;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -374,20 +565,67 @@ body {
     justify-content: flex-start;
 }
 
+/* 布局控制区域特殊样式 */
+#layoutSelect {
+    width: 100%;
+    margin-bottom: 0.25rem;
+}
+
 /* 新增：选择框和颜色选择器样式 */
 .select-field {
-    padding: 0.5rem;
-    border: 2px solid #e9ecef;
-    border-radius: 6px;
+    padding: 0.65rem 2.5rem 0.65rem 0.9rem;
+    border: 2px solid #e0e6ed;
+    border-radius: 8px;
     font-size: 0.9rem;
-    background: white;
+    font-weight: 500;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    color: #2c3e50;
     cursor: pointer;
-    transition: border-color 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23667eea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 12px;
+    min-width: 140px;
+}
+
+.select-field:hover {
+    border-color: #667eea;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+    transform: translateY(-1px);
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
 }
 
 .select-field:focus {
     outline: none;
     border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1), 0 4px 12px rgba(102, 126, 234, 0.2);
+    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
+}
+
+.select-field:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+/* 下拉选项样式优化 */
+.select-field option {
+    padding: 0.75rem;
+    background: white;
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+.select-field option:hover {
+    background: #f0f4ff;
+}
+
+.select-field option:checked {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 600;
 }
 
 .color-picker {
@@ -415,7 +653,8 @@ body {
     align-items: center;
     justify-content: center;
     background: #f8f9fa;
-    min-height: 500px;
+    min-height: 600px;
+    width: 100%;
 }
 
 .placeholder-content {
@@ -570,21 +809,27 @@ body {
 /* 响应式设计 */
 @media (max-width: 1200px) {
     .main-content {
-        flex-direction: column;
         padding: 1rem;
     }
     
-    .sidebar {
-        flex: none;
-        width: 100%;
+    .function-cards-row {
+        flex-direction: column;
     }
     
-    .content-area {
-        min-height: 600px;
+    .function-card-compact {
+        max-width: 100%;
     }
     
-    .edit-toolbar {
-        grid-template-columns: 1fr;
+    .control-bar {
+        flex-direction: column;
+    }
+    
+    .control-section {
+        min-width: 100%;
+    }
+    
+    .control-section-wide {
+        min-width: 100%;
     }
 }
 
@@ -695,13 +940,42 @@ body {
 
 /* 概念图展示区域样式 */
 .concept-map-display {
-    margin-top: 20px;
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 0 20px 20px 20px;
+    width: 100%;
     flex: 1;
-    min-height: 800px;
+    min-height: 600px;
+}
+
+/* 概念节点和关系连接列表区域样式 */
+.concept-lists-area {
+    background: white;
+    border-top: 2px solid #e9ecef;
+    padding: 1.5rem;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.concept-lists-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.concept-list-section {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid #e9ecef;
+}
+
+.concept-list-title {
+    color: #2c3e50;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #667eea;
 }
 
 /* 统一加载动画样式 */
@@ -773,15 +1047,15 @@ body {
     background: #f8f9fa;
     min-height: 1200px;
     display: flex;
-    align-items: center;
+    align-items: flex-start; /* 取消上下居中，从顶部开始 */
     justify-content: center;
     position: relative;
 }
 
-/* 当概念图区域显示加载状态时，确保内容居中 */
+/* 当概念图区域显示加载状态时，也从顶部开始 */
 .graph-canvas.loading {
     display: flex;
-    align-items: center;
+    align-items: flex-start; /* 取消上下居中，从顶部开始 */
     justify-content: center;
     min-height: 1200px;
 }
