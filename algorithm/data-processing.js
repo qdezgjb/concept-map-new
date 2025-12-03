@@ -96,13 +96,13 @@ function ensureSingleFirstLayer(conceptData) {
     
     // 如果没有找到L1节点，尝试从所有节点中找到最相关的
     if (!firstLayerNode) {
-        nodes.forEach(node => {
-            const matchScore = calculateKeywordMatchScore(node.label, currentKeyword);
-            if (matchScore > bestMatchScore) {
-                bestMatchScore = matchScore;
-                firstLayerNode = node;
-            }
-        });
+    nodes.forEach(node => {
+        const matchScore = calculateKeywordMatchScore(node.label, currentKeyword);
+        if (matchScore > bestMatchScore) {
+            bestMatchScore = matchScore;
+            firstLayerNode = node;
+        }
+    });
     }
     
     // ⚠️ 确保第一层节点有layer=1属性
@@ -177,13 +177,13 @@ function ensureSingleFirstLayer(conceptData) {
     
     // 确保第一层节点在数组的第一位
     const firstLayerIndex = filteredNodes.findIndex(n => n.id === firstLayerId);
-    if (firstLayerIndex > 0) {
+        if (firstLayerIndex > 0) {
         filteredNodes.splice(firstLayerIndex, 1);
         filteredNodes.unshift(firstLayerNode);
     } else if (firstLayerIndex === -1) {
         // 如果第一层节点不在数组中，添加到第一位
         filteredNodes.unshift(firstLayerNode);
-    }
+        }
     
     // 调整连线的方向，确保第一层节点作为源节点（对于指向第一层节点的连线）
     newLinks.forEach(link => {

@@ -100,6 +100,8 @@ function displayConceptMap(graphData) {
         }
         
         drawGraph(currentGraphData);
+        // 启用画布缩放（鼠标滚轮）
+        enableCanvasZoom();
         
         // 依赖绘制时的直接事件绑定，去掉统一延迟绑定
         // bindGraphEvents();
@@ -449,6 +451,136 @@ function drawGraph(data) {
         resolveLinkLabelOverlaps();
         
         console.log('drawGraph 函数执行完成');
+    }
+
+// ====================== 画布缩放（鼠标滚轮） ======================
+/**
+ * 启用SVG画布缩放功能：通过鼠标滚轮缩放viewBox
+ * 只绑定一次，后续重绘不会重复绑定
+ * 缩放时始终保持概念图在正中央
+ */
+function enableCanvasZoom() {
+        const svg = document.querySelector('.concept-graph');
+        if (!svg) return;
+        
+        if (svg.hasAttribute('data-zoom-enabled')) {
+            return; // 已经绑定过缩放事件
+        }
+        
+        // 初始化缩放状态
+        window.graphZoomState = window.graphZoomState || {
+            scale: 1,
+            minScale: 0.4,
+            maxScale: 2.5
+        };
+        
+        // 记录初始 viewBox
+        const initialViewBox = svg.getAttribute('viewBox') || '0 0 2400 1200';
+        const parts = initialViewBox.split(' ').map(parseFloat);
+        let viewBoxX = parts[0] || 0;
+        let viewBoxY = parts[1] || 0;
+        const viewBoxWidth = parts[2] || 2400;
+        const viewBoxHeight = parts[3] || 1200;
+        
+        /**
+         * 计算概念图的中心点
+         * @returns {{centerX: number, centerY: number}} 概念图的中心坐标
+         */
+        function getGraphCenter() {
+            const graphData = window.currentGraphData;
+            if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+                // 如果没有节点数据，使用viewBox的中心
+                return {
+                    centerX: viewBoxX + viewBoxWidth / 2,
+                    centerY: viewBoxY + viewBoxHeight / 2
+                };
+            }
+            
+            // 计算所有节点的边界框
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            
+            graphData.nodes.forEach(node => {
+                if (node.x !== undefined && node.y !== undefined) {
+                    // 获取节点尺寸
+                    const nodeLabel = node.label || '';
+                    const nodeDimensions = window.calculateNodeDimensions 
+                        ? window.calculateNodeDimensions(nodeLabel, 90, 45, 20)
+                        : { width: 90, height: 45 };
+                    const nodeWidth = node.width || nodeDimensions.width;
+                    const nodeHeight = node.height || nodeDimensions.height;
+                    
+                    // 计算节点的边界
+                    const nodeLeft = node.x - nodeWidth / 2;
+                    const nodeRight = node.x + nodeWidth / 2;
+                    const nodeTop = node.y - nodeHeight / 2;
+                    const nodeBottom = node.y + nodeHeight / 2;
+                    
+                    minX = Math.min(minX, nodeLeft);
+                    minY = Math.min(minY, nodeTop);
+                    maxX = Math.max(maxX, nodeRight);
+                    maxY = Math.max(maxY, nodeBottom);
+                }
+            });
+            
+            // 如果所有节点都没有坐标，使用viewBox的中心
+            if (minX === Infinity) {
+                return {
+                    centerX: viewBoxX + viewBoxWidth / 2,
+                    centerY: viewBoxY + viewBoxHeight / 2
+                };
+            }
+            
+            // 返回概念图的中心点
+            return {
+                centerX: (minX + maxX) / 2,
+                centerY: (minY + maxY) / 2
+            };
+        }
+        
+        svg.addEventListener('wheel', function (e) {
+            e.preventDefault();
+            
+            const zoomFactor = 0.1; // 每次滚轮缩放比例
+            let { scale, minScale, maxScale } = window.graphZoomState;
+            
+            if (e.deltaY < 0) {
+                // 放大
+                scale *= (1 + zoomFactor);
+            } else {
+                // 缩小
+                scale *= (1 - zoomFactor);
+            }
+            
+            scale = Math.max(minScale, Math.min(maxScale, scale));
+            window.graphZoomState.scale = scale;
+            
+            // 获取概念图的中心点
+            const graphCenter = getGraphCenter();
+            const centerX = graphCenter.centerX;
+            const centerY = graphCenter.centerY;
+            
+            // 以概念图中心为缩放中心，调整viewBox大小
+            const newWidth = viewBoxWidth / scale;
+            const newHeight = viewBoxHeight / scale;
+            
+            // 调整viewBox位置，使概念图中心始终在视图中心
+            viewBoxX = centerX - newWidth / 2;
+            viewBoxY = centerY - newHeight / 2;
+            
+            svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${newWidth} ${newHeight}`);
+            console.log('画布缩放:', { 
+                scale, 
+                viewBoxX, 
+                viewBoxY, 
+                newWidth, 
+                newHeight,
+                graphCenterX: centerX,
+                graphCenterY: centerY
+            });
+        }, { passive: false });
+        
+        svg.setAttribute('data-zoom-enabled', 'true');
+        console.log('SVG 画布缩放功能已启用（以概念图中心为缩放中心）');
     }
 
 // 检测并解决连接线标签重叠问题（包括与节点的重叠）
