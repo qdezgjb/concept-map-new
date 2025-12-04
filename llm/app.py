@@ -236,9 +236,17 @@ class AliyunVisionAPI:
             error_msg = str(e)
             logger.error(f"概念图分析失败: {error_msg}", exc_info=True)
             
+            # 处理特定的API错误，提供更友好的错误信息
+            if "inappropriate content" in error_msg.lower():
+                friendly_error = "图片内容可能包含不当内容，被API安全检测拦截。请尝试：\n1. 检查图片内容是否包含敏感信息\n2. 尝试使用其他图片\n3. 如果图片内容正常，可能是API误判，请稍后重试"
+            elif "APIError" in str(type(e)):
+                friendly_error = f"API调用失败: {error_msg}\n请检查API密钥配置和网络连接"
+            else:
+                friendly_error = f"分析失败: {error_msg}"
+            
             return {
                 "success": False,
-                "error": f"分析失败: {error_msg}"
+                "error": friendly_error
             }
     
     def analyze_concept_map_simple(self, image_data, question=None):
@@ -418,7 +426,16 @@ class AliyunVisionAPI:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"概念图流式分析失败: {error_msg}", exc_info=True)
-            yield {"error": f"分析失败: {error_msg}", "done": True}
+            
+            # 处理特定的API错误，提供更友好的错误信息
+            if "inappropriate content" in error_msg.lower():
+                friendly_error = "图片内容可能包含不当内容，被API安全检测拦截。请尝试：\n1. 检查图片内容是否包含敏感信息\n2. 尝试使用其他图片\n3. 如果图片内容正常，可能是API误判，请稍后重试"
+            elif "APIError" in str(type(e)):
+                friendly_error = f"API调用失败: {error_msg}\n请检查API密钥配置和网络连接"
+            else:
+                friendly_error = f"分析失败: {error_msg}"
+            
+            yield {"error": friendly_error, "done": True}
 
 class DeepSeekAPI:
     """DeepSeek API客户端（使用OpenAI SDK）"""

@@ -266,6 +266,24 @@ function sortNodesByBarycenter(levelNodes, links, nodeMap, level, aggregatedLink
     // 计算每个节点的重心
     const nodeBarycenters = new Map();
     
+    // 检测同层连接：找出有同层连接的节点对
+    const sameLayerConnections = new Map(); // nodeId -> Set of connected nodeIds (same layer)
+    links.forEach(link => {
+        const sourceNode = nodeMap.get(link.source);
+        const targetNode = nodeMap.get(link.target);
+        if (sourceNode && targetNode && sourceNode.layer === targetNode.layer && sourceNode.layer === currentLayer) {
+            // 同层连接
+            if (!sameLayerConnections.has(link.source)) {
+                sameLayerConnections.set(link.source, new Set());
+            }
+            if (!sameLayerConnections.has(link.target)) {
+                sameLayerConnections.set(link.target, new Set());
+            }
+            sameLayerConnections.get(link.source).add(link.target);
+            sameLayerConnections.get(link.target).add(link.source);
+        }
+    });
+    
     levelNodes.forEach(node => {
         let totalWeight = 0;
         let weightedSum = 0;
@@ -307,10 +325,24 @@ function sortNodesByBarycenter(levelNodes, links, nodeMap, level, aggregatedLink
         nodeBarycenters.set(node.id, barycenter);
     });
     
-    // 按重心排序，但优先将聚合连线的目标节点聚集在一起
+    // 按重心排序，但优先将聚合连线的目标节点聚集在一起，同时考虑同层连接
     const sortedNodes = [...levelNodes].sort((a, b) => {
         const isAggregatedA = aggregatedTargetNodes.has(a.id);
         const isAggregatedB = aggregatedTargetNodes.has(b.id);
+        
+        // 检查是否有同层连接
+        const hasSameLayerConnectionA = sameLayerConnections.has(a.id);
+        const hasSameLayerConnectionB = sameLayerConnections.has(b.id);
+        const areConnected = (hasSameLayerConnectionA && sameLayerConnections.get(a.id).has(b.id)) ||
+                             (hasSameLayerConnectionB && sameLayerConnections.get(b.id).has(a.id));
+        
+        // 如果两个节点有同层连接，优先将它们放在一起（但优先层级靠近原则）
+        if (areConnected) {
+            // 有同层连接的节点优先相邻，但还是要考虑重心（层级靠近）
+            const barycenterA = nodeBarycenters.get(a.id) || 0;
+            const barycenterB = nodeBarycenters.get(b.id) || 0;
+            return barycenterA - barycenterB;
+        }
         
         // 如果两个节点都是聚合连线的目标节点，检查它们是否属于同一个聚合组
         if (isAggregatedA && isAggregatedB) {
@@ -344,7 +376,7 @@ function sortNodesByBarycenter(levelNodes, links, nodeMap, level, aggregatedLink
         if (isAggregatedA && !isAggregatedB) return -1;
         if (!isAggregatedA && isAggregatedB) return 1;
         
-        // 其他情况按重心排序
+        // 其他情况按重心排序（优先层级靠近）
         const barycenterA = nodeBarycenters.get(a.id) || 0;
         const barycenterB = nodeBarycenters.get(b.id) || 0;
         return barycenterA - barycenterB;

@@ -192,26 +192,57 @@ function drawGraph(data) {
             const endX = waypoints[waypoints.length - 1].x;
             const endY = waypoints[waypoints.length - 1].y;
             
-            // 计算连接线中点（用于标签位置）
-            // 对于折线，使用中间点作为标签位置
-            let midX, midY;
-            if (waypoints.length === 3) {
-                // 两段折线：使用中间点作为标签位置
-                midX = waypoints[1].x;
-                midY = waypoints[1].y;
-            } else {
-                // 直线：使用起点和终点的中点
-                midX = (startX + endX) / 2;
-                midY = (startY + endY) / 2;
-            }
-            
-            // 计算箭头位置
+            // 计算连接线中点（用于标签位置）和箭头位置
             const arrowLength = 8;
             const arrowWidth = 6;
             
-            // 对于折线，箭头位置需要基于最后一段线段计算
-            let arrowX, arrowY;
-            if (waypoints.length > 2) {
+            let midX, midY, arrowX, arrowY;
+            
+            if (pathData.isCurved) {
+                // 圆弧：需要先计算断开位置，然后确定标签和箭头位置
+                const textWidth = Math.max(80, (link.label || '双击编辑').length * 12);
+                const textGap = Math.max(30, textWidth * 0.6);
+                
+                // 计算圆弧路径长度（近似）
+                const controlPoint = pathData.controlPoint || waypoints[1];
+                const dist1 = Math.sqrt(
+                    Math.pow(controlPoint.x - startX, 2) + 
+                    Math.pow(controlPoint.y - startY, 2)
+                );
+                const dist2 = Math.sqrt(
+                    Math.pow(endX - controlPoint.x, 2) + 
+                    Math.pow(endY - controlPoint.y, 2)
+                );
+                const totalLength = dist1 + dist2;
+                
+                // 计算断开位置
+                const gapStart = (totalLength - textGap) / 2;
+                const gapEnd = gapStart + textGap;
+                const gapCenter = gapStart + textGap / 2;
+                
+                // 计算标签位置：在断开处的中央（路径上t=0.5的点，即控制点附近）
+                // 对于二次贝塞尔曲线，t=0.5时的点：P(0.5) = 0.25*P0 + 0.5*P1 + 0.25*P2
+                midX = 0.25 * startX + 0.5 * controlPoint.x + 0.25 * endX;
+                midY = 0.25 * startY + 0.5 * controlPoint.y + 0.25 * endY;
+                
+                // 计算箭头位置：在断开后的路径上（在gapEnd之后，距离终点8px）
+                // 计算从控制点到终点的方向
+                const dx = endX - controlPoint.x;
+                const dy = endY - controlPoint.y;
+                const segmentLength = Math.sqrt(dx * dx + dy * dy);
+                if (segmentLength > 0) {
+                    const arrowOffset = 8 / segmentLength;
+                    arrowX = endX - dx * arrowOffset;
+                    arrowY = endY - dy * arrowOffset;
+                } else {
+                    arrowX = endX;
+                    arrowY = endY;
+                }
+            } else if (waypoints.length === 3) {
+                // 两段折线：使用中间点作为标签位置
+                midX = waypoints[1].x;
+                midY = waypoints[1].y;
+                
                 // 折线：箭头位置基于最后一段线段
                 const lastSegmentStart = waypoints[waypoints.length - 2];
                 const lastSegmentEnd = waypoints[waypoints.length - 1];
@@ -223,6 +254,10 @@ function drawGraph(data) {
                 arrowX = lastSegmentEnd.x - (lastSegmentEnd.x - lastSegmentStart.x) * arrowOffset;
                 arrowY = lastSegmentEnd.y - (lastSegmentEnd.y - lastSegmentStart.y) * arrowOffset;
             } else {
+                // 直线：使用起点和终点的中点
+                midX = (startX + endX) / 2;
+                midY = (startY + endY) / 2;
+                
                 // 直线：使用原来的计算方式
                 const lineLength = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
                 const arrowOffset = 8 / lineLength;
@@ -263,6 +298,28 @@ function drawGraph(data) {
                 
                 // 设置断开模式：第一段可见长度 + 断开间隙 + 第二段可见长度
                 line.setAttribute('stroke-dasharray', `${firstSegmentVisible} ${textGap} ${secondSegmentVisible}`);
+            } else if (pathData.isCurved) {
+                // 圆弧：在中间位置断开用于放置文字
+                const textWidth = Math.max(80, (link.label || '双击编辑').length * 12);
+                const textGap = Math.max(30, textWidth * 0.6);
+                
+                // 计算圆弧路径长度（近似）
+                // 对于二次贝塞尔曲线，使用控制点计算近似长度
+                const controlPoint = pathData.controlPoint || waypoints[1];
+                const dist1 = Math.sqrt(
+                    Math.pow(controlPoint.x - startX, 2) + 
+                    Math.pow(controlPoint.y - startY, 2)
+                );
+                const dist2 = Math.sqrt(
+                    Math.pow(endX - controlPoint.x, 2) + 
+                    Math.pow(endY - controlPoint.y, 2)
+                );
+                const totalLength = dist1 + dist2;
+                
+                // 在中间位置断开
+                const gapStart = (totalLength - textGap) / 2;
+                const gapEnd = gapStart + textGap;
+                line.setAttribute('stroke-dasharray', `${gapStart} ${textGap} ${totalLength - gapEnd}`);
             } else if (!pathData.isPolyline) {
                 // 直线：使用原来的断开效果
                 const textWidth = Math.max(80, (link.label || '双击编辑').length * 12);
@@ -276,9 +333,14 @@ function drawGraph(data) {
             // 创建箭头
             const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             
-            // 计算箭头方向（基于最后一段线段）
+            // 计算箭头方向
             let angle;
-            if (waypoints.length > 2) {
+            if (pathData.isCurved) {
+                // 圆弧：在箭头位置处计算切线方向
+                const controlPoint = pathData.controlPoint || waypoints[1];
+                // 对于二次贝塞尔曲线，在终点处的切线方向是从控制点到终点的方向
+                angle = Math.atan2(endY - controlPoint.y, endX - controlPoint.x);
+            } else if (waypoints.length > 2) {
                 const lastSegmentStart = waypoints[waypoints.length - 2];
                 const lastSegmentEnd = waypoints[waypoints.length - 1];
                 angle = Math.atan2(lastSegmentEnd.y - lastSegmentStart.y, lastSegmentEnd.x - lastSegmentStart.x);
@@ -1022,9 +1084,11 @@ function redrawSingleLink(link) {
         // 计算连接线中点（用于标签位置）
         let midX, midY;
         if (pathData.isCurved && pathData.controlPoint) {
-            // 圆弧：使用控制点作为标签位置
-            midX = pathData.controlPoint.x;
-            midY = pathData.controlPoint.y;
+            // 圆弧：使用路径上t=0.5的点作为标签位置（断开处的中央）
+            // 对于二次贝塞尔曲线，t=0.5时的点：P(0.5) = 0.25*P0 + 0.5*P1 + 0.25*P2
+            const controlPoint = pathData.controlPoint;
+            midX = 0.25 * startX + 0.5 * controlPoint.x + 0.25 * endX;
+            midY = 0.25 * startY + 0.5 * controlPoint.y + 0.25 * endY;
         } else if (waypoints.length === 3) {
             // 两段折线：使用中间点作为标签位置
             midX = waypoints[1].x;
@@ -1038,7 +1102,21 @@ function redrawSingleLink(link) {
         // 计算箭头位置
         const arrowLength = 8;
         let arrowX, arrowY;
-        if (waypoints.length > 2) {
+        if (pathData.isCurved && pathData.controlPoint) {
+            // 圆弧：在断开后的路径上（距离终点8px）
+            const controlPoint = pathData.controlPoint;
+            const dx = endX - controlPoint.x;
+            const dy = endY - controlPoint.y;
+            const segmentLength = Math.sqrt(dx * dx + dy * dy);
+            if (segmentLength > 0) {
+                const arrowOffset = 8 / segmentLength;
+                arrowX = endX - dx * arrowOffset;
+                arrowY = endY - dy * arrowOffset;
+            } else {
+                arrowX = endX;
+                arrowY = endY;
+            }
+        } else if (waypoints.length > 2) {
             // 折线：箭头位置基于最后一段线段
             const lastSegmentStart = waypoints[waypoints.length - 2];
             const lastSegmentEnd = waypoints[waypoints.length - 1];
@@ -1433,6 +1511,28 @@ function redrawAllLinks() {
                 
                 // 设置断开模式：第一段可见长度 + 断开间隙 + 第二段可见长度
                 line.setAttribute('stroke-dasharray', `${firstSegmentVisible} ${textGap} ${secondSegmentVisible}`);
+            } else if (pathData.isCurved) {
+                // 圆弧：在中间位置断开用于放置文字
+                const textWidth = Math.max(80, (link.label || '双击编辑').length * 12);
+                const textGap = Math.max(30, textWidth * 0.6);
+                
+                // 计算圆弧路径长度（近似）
+                // 对于二次贝塞尔曲线，使用控制点计算近似长度
+                const controlPoint = pathData.controlPoint || waypoints[1];
+                const dist1 = Math.sqrt(
+                    Math.pow(controlPoint.x - startX, 2) + 
+                    Math.pow(controlPoint.y - startY, 2)
+                );
+                const dist2 = Math.sqrt(
+                    Math.pow(endX - controlPoint.x, 2) + 
+                    Math.pow(endY - controlPoint.y, 2)
+                );
+                const totalLength = dist1 + dist2;
+                
+                // 在中间位置断开
+                const gapStart = (totalLength - textGap) / 2;
+                const gapEnd = gapStart + textGap;
+                line.setAttribute('stroke-dasharray', `${gapStart} ${textGap} ${totalLength - gapEnd}`);
             } else if (!pathData.isPolyline) {
                 // 直线：使用原来的断开效果
                 const textWidth = Math.max(80, (link.label || '双击编辑').length * 12);

@@ -514,7 +514,43 @@ body {
     justify-content: center;
     position: relative;
     flex: 1;
-    overflow: auto;
+    /* 确保滚动条始终显示（水平和垂直） */
+    overflow-x: auto;
+    overflow-y: auto;
+    /* Firefox滚动条样式 */
+    scrollbar-width: thin;
+    scrollbar-color: #888 #f1f1f1;
+}
+
+/* 概念图展示区域的滚动条样式（Webkit浏览器：Chrome、Safari、Edge） */
+.graph-canvas-fullwidth::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.graph-canvas-fullwidth::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 6px;
+}
+
+.graph-canvas-fullwidth::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 6px;
+    border: 2px solid #f1f1f1;
+}
+
+.graph-canvas-fullwidth::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* 水平滚动条样式 */
+.graph-canvas-fullwidth::-webkit-scrollbar:horizontal {
+    height: 12px;
+}
+
+/* 垂直滚动条样式 */
+.graph-canvas-fullwidth::-webkit-scrollbar:vertical {
+    width: 12px;
 }
 
 .graph-canvas-fullwidth .concept-graph {

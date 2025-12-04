@@ -675,32 +675,26 @@ function hasLinkNodeOverlap(link, nodes) {
     let startX, startY, endX, endY;
     
     if (isHierarchical) {
-        // 层次连接：连接到节点边框的中点
+        // 层次连接：正常连接（从上到下：源节点下边，目标节点上边；从下到上：源节点上边，目标节点下边）
         if (target.y > source.y) {
+            // 目标节点在下方：从源节点下边连接到目标节点上边
             startX = source.x;
             startY = source.y + sourceHeight / 2;
             endX = target.x;
             endY = target.y - targetHeight / 2;
         } else {
+            // 目标节点在上方：从源节点上边连接到目标节点下边
             startX = source.x;
             startY = source.y - sourceHeight / 2;
             endX = target.x;
             endY = target.y + targetHeight / 2;
         }
     } else {
-        // 同级连接：连接到节点边框的中点
-        const dx = target.x - source.x;
-        if (dx > 0) {
-            startX = source.x + sourceWidth / 2;
-            startY = source.y;
-            endX = target.x - targetWidth / 2;
-            endY = target.y;
-        } else {
-            startX = source.x - sourceWidth / 2;
-            startY = source.y;
-            endX = target.x + targetWidth / 2;
-            endY = target.y;
-        }
+        // 同级连接：从节点的下边中点出发连接到另一个节点的下边中点
+        startX = source.x;
+        startY = source.y + sourceHeight / 2;
+        endX = target.x;
+        endY = target.y + targetHeight / 2;
     }
     
     // 检查连接线是否与其他节点重叠
@@ -818,35 +812,37 @@ function calculatePolylinePath(link, nodes, allLinks = null) {
     // 判断节点间的层次关系
     const isHierarchical = window.isHierarchicalConnection(source, target, nodes, [link]);
     
+    // 检测同层连接（两个节点在同一层）
+    const isSameLayer = source.layer !== undefined && target.layer !== undefined && source.layer === target.layer;
+    
     let startX, startY, endX, endY;
     
     if (isHierarchical) {
-        // 层次连接：连接到节点边框的中点
+        // 层次连接：正常连接（从上到下：源节点下边，目标节点上边；从下到上：源节点上边，目标节点下边）
         if (target.y > source.y) {
+            // 目标节点在下方：从源节点下边连接到目标节点上边
             startX = source.x;
             startY = source.y + sourceHeight / 2;
             endX = target.x;
             endY = target.y - targetHeight / 2;
         } else {
+            // 目标节点在上方：从源节点上边连接到目标节点下边
             startX = source.x;
             startY = source.y - sourceHeight / 2;
             endX = target.x;
             endY = target.y + targetHeight / 2;
         }
     } else {
-        // 同级连接：连接到节点边框的中点
-        const dx = target.x - source.x;
-        if (dx > 0) {
-            startX = source.x + sourceWidth / 2;
-            startY = source.y;
-            endX = target.x - targetWidth / 2;
-            endY = target.y;
-        } else {
-            startX = source.x - sourceWidth / 2;
-            startY = source.y;
-            endX = target.x + targetWidth / 2;
-            endY = target.y;
-        }
+        // 同级连接：从节点的下边中点出发连接到另一个节点的下边中点
+        startX = source.x;
+        startY = source.y + sourceHeight / 2;
+        endX = target.x;
+        endY = target.y + targetHeight / 2;
+    }
+    
+    // 如果是同层连接，使用圆弧连线（向下弯曲）
+    if (isSameLayer) {
+        return calculateCurvedPath(startX, startY, endX, endY, false); // false表示向下弯曲
     }
     
     // 如果是双向连接，使用圆弧连线
@@ -907,10 +903,24 @@ function calculateCurvedPath(startX, startY, endX, endY, isFirstLink) {
     const perpY = dx / distance;
     
     // 圆弧的弯曲程度（距离越大，弯曲程度越大）
-    const curvature = Math.min(distance * 0.3, 80); // 最大弯曲80px
+    // 对于同级连接，增大弧度
+    const curvature = Math.min(distance * 0.5, 150); // 增大弯曲程度，最大弯曲150px
     
-    // 确定弯曲方向：第一条线向上弯曲，第二条线向下弯曲
-    const curveDirection = isFirstLink ? 1 : -1;
+    // 确定弯曲方向
+    let curveDirection;
+    if (isFirstLink === false) {
+        // 同级连接：强制向下弯曲（从节点下方通过）
+        // 确保控制点在起点和终点的下方
+        // perpY 的符号取决于 dx 的方向：
+        // - 如果 dx > 0（从左到右），perpY > 0（向下），使用 -1 让控制点更下方
+        // - 如果 dx < 0（从右到左），perpY < 0（向上），使用 1 让控制点更下方
+        // 因为：如果 perpY < 0，使用 1 时，controlY = midY + perpY * curvature * 1 = midY + 负值 = midY - |perpY| * curvature，控制点在下方
+        curveDirection = perpY > 0 ? -1 : 1;
+    } else {
+        // 双向连接：第一条线向上弯曲，第二条线向下弯曲
+        curveDirection = isFirstLink ? 1 : -1;
+    }
+    
     const controlX = midX + perpX * curvature * curveDirection;
     const controlY = midY + perpY * curvature * curveDirection;
     

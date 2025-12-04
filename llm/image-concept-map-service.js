@@ -72,7 +72,21 @@ class ImageConceptMapService {
                             try {
                                 const parsed = JSON.parse(chunk);
                                 if (parsed.done) {
-                                    // 流结束标记，忽略
+                                    // 流结束标记，检查是否有错误
+                                    if (parsed.error) {
+                                        console.error('❌ 收到错误响应:', parsed.error);
+                                        onError({
+                                            message: parsed.error
+                                        });
+                                        return; // 提前返回，不再处理后续数据
+                                    }
+                                } else if (parsed.error) {
+                                    // 处理错误响应
+                                    console.error('❌ 收到错误响应:', parsed.error);
+                                    onError({
+                                        message: parsed.error
+                                    });
+                                    return; // 提前返回，不再处理后续数据
                                 } else if (parsed.content) {
                                     fullResponse += parsed.content;
                                     onChunk(parsed.content);
@@ -91,7 +105,21 @@ class ImageConceptMapService {
                     try {
                         const parsed = JSON.parse(chunk);
                         if (parsed.done) {
-                            // 忽略结束
+                            // 检查结束标记中是否有错误
+                            if (parsed.error) {
+                                console.error('❌ 收到错误响应:', parsed.error);
+                                onError({
+                                    message: parsed.error
+                                });
+                                return; // 提前返回
+                            }
+                        } else if (parsed.error) {
+                            // 处理错误响应
+                            console.error('❌ 收到错误响应:', parsed.error);
+                            onError({
+                                message: parsed.error
+                            });
+                            return; // 提前返回
                         } else if (parsed.content) {
                             fullResponse += parsed.content;
                             onChunk(parsed.content);
@@ -239,6 +267,8 @@ ${this.getTripleExtractionPromptSection()}
 ### 层级连接要求 (最关键)
 - **相邻层之间必须有足够的三元组**（如L1→L2至少4个，L2→L3至少6个，L3→L4至少6个，L4→L5至少6个等）。
 - 这些三元组必须覆盖不同的源节点和目标节点，确保层次间的充分连接。
+- **🚫🚫🚫 绝对禁止孤立节点：每个节点都必须至少有一条连接线（要么作为源节点，要么作为目标节点，或者两者都是）**
+- **如果某个节点没有任何连接线，必须删除该节点或为其添加连接**
 
 ### 概念和关系词要求
 - **🔴🔴🔴 最重要：严格按图像文字提取概念**
@@ -249,6 +279,24 @@ ${this.getTripleExtractionPromptSection()}
 - **🔴🔴🔴 关键要求：同一个概念在整个三元组列表中必须始终使用相同的层级标记！**
   - 例如：如果"革命党人"在第一个三元组中被标记为L2，那么在所有后续三元组中，它也必须始终是L2，绝对不能变成L3或其他层级
   - 如果同一个概念在不同三元组中被标记为不同层级，会导致层级冲突错误
+- **🔴🔴🔴 相似内容识别与合并（关键要求）：**
+  - **在提取三元组之前，必须仔细识别图像文字中相似、重复或表达同一概念的内容**
+  - **将相似内容合并为一个节点，使用统一的表述方式**
+  - **禁止将相似内容创建为两个不同的节点**
+  - **相似内容识别规则：**
+    - 如果图像中出现"历史背景"、"从历史背景看"、"历史背景方向"等相似表述，应统一为一个节点（如"历史背景"）
+    - 如果图像中出现"核心内容"、"在核心内容上"、"核心内容方向"等相似表述，应统一为一个节点（如"核心内容"）
+    - 如果图像中出现"革命对象"、"就革命对象而言"、"革命对象方向"等相似表述，应统一为一个节点（如"革命对象"）
+    - 如果图像中出现"实践影响"、"其实践影响"、"实践影响方向"等相似表述，应统一为一个节点（如"实践影响"）
+    - 如果图像中出现其他相似或重复的概念表述，也应统一为一个节点
+  - **合并原则：**
+    - 选择最简洁、最准确的表述作为统一节点名称
+    - 如果图像中多次提到同一概念但表述略有不同，应识别为同一概念并统一表述
+    - 避免因为表述的细微差异而创建重复节点
+  - **检查步骤：**
+    - 在输出三元组之前，检查是否有相似或重复的概念
+    - 如果有相似概念，将它们合并为一个节点
+    - 确保所有指向相似概念的关系都指向合并后的统一节点
 - **⭐ 关系词要求（关键：必须准确反映两个节点之间的具体关系）**：
   - **关系词要简洁（2-4字）**，不含助词（如"的"、"了"等），但能让"概念1 + 关系词 + 概念2"连读成通顺且语义准确的话
   - **核心原则**：根据两个节点的具体内容，选择最能准确描述它们之间关系的关系词，避免使用过于通用的词汇

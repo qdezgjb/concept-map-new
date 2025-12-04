@@ -593,10 +593,12 @@ async function generateConceptMapFromImage(imageData, fileName) {
             
             // 显示错误信息
             if (window.aiIntroText) {
+                // 处理多行错误信息，将换行符转换为HTML
+                const errorMessage = (error.message || '未知错误').replace(/\n/g, '<br>');
                 window.aiIntroText.innerHTML = `
                     <div style="padding: 15px;">
                         <h4 style="color: #e74c3c; margin-bottom: 10px;">❌ 生成失败</h4>
-                        <p style="color: #666; margin: 10px 0;">${error.message || '未知错误'}</p>
+                        <p style="color: #666; margin: 10px 0; white-space: pre-line;">${errorMessage}</p>
                         <p style="color: #999; font-size: 14px; margin-top: 15px;">请检查：</p>
                         <ul style="color: #999; font-size: 14px; margin: 5px 0; padding-left: 20px;">
                             <li>后端服务是否正常运行</li>
@@ -610,12 +612,14 @@ async function generateConceptMapFromImage(imageData, fileName) {
             
             // 更新流程状态
             if (window.processText) {
+                // 处理多行错误信息，将换行符转换为HTML
+                const errorMessage = (error.message || '生成失败').replace(/\n/g, '<br>');
                 window.processText.innerHTML = `
                     <div style="padding: 15px;">
                         <h4 style="color: #e74c3c; margin-bottom: 10px;">🖼️ 从图片生成概念图</h4>
                         <p style="margin: 5px 0;"><strong>当前操作：</strong>生成失败</p>
                         <p style="margin: 5px 0;"><strong>文件名：</strong>${fileName}</p>
-                        <p style="margin: 5px 0; color: #e74c3c;">❌ ${error.message || '生成失败'}</p>
+                        <p style="margin: 5px 0; color: #e74c3c; white-space: pre-line;">❌ ${errorMessage}</p>
                     </div>
                 `;
             }

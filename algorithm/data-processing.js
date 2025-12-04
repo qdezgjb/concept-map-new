@@ -24,17 +24,16 @@ function validateLayerRelation(layerRelation) {
     const sourceLayer = parseInt(match[1]);
     const targetLayer = parseInt(match[2]);
     
-    // 只允许从高层到低层的相邻层连接（如L1→L2、L2→L3、L3→L4、L4→L5等）
-    // 不允许跨层（如L1→L3）、反向（如L2→L1）、同层（如L2→L2）
-    const isValid = targetLayer === sourceLayer + 1;
+    // 允许从高层到低层的相邻层连接（如L1→L2、L2→L3、L3→L4、L4→L5等）
+    // 允许同层连接（如L2→L2、L3→L3等）
+    // 不允许跨层（如L1→L3）、反向（如L2→L1）
+    const isValid = targetLayer === sourceLayer + 1 || targetLayer === sourceLayer;
     
     if (!isValid) {
         if (targetLayer < sourceLayer) {
             console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝反向连接（从低层到高层）');
-        } else if (targetLayer === sourceLayer) {
-            console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝同层连接');
         } else {
-            console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝跨层连接（必须相邻层）');
+            console.log('⚠️ 无效的层级关系:', layerRelation, '拒绝跨层连接（必须相邻层或同层）');
         }
     }
     
@@ -443,16 +442,13 @@ function convertTriplesToConceptData(triples) {
         sourceLayer = parseInt(match[1]);
         targetLayer = parseInt(match[2]);
         
-        // ⚠️ 只接受正向相邻层连接（从高层到低层，且必须相邻：L1→L2、L2→L3、L3→L4、L4→L5等）
-        if (targetLayer !== sourceLayer + 1) {
+        // ⚠️ 允许正向相邻层连接（从高层到低层，且必须相邻：L1→L2、L2→L3、L3→L4、L4→L5等）
+        // ⚠️ 允许同层连接（L2→L2、L3→L3等）
+        if (targetLayer !== sourceLayer + 1 && targetLayer !== sourceLayer) {
             if (targetLayer < sourceLayer) {
                 // ❌ 拒绝反向连接
                 console.warn(`❌ 拒绝反向连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
                 console.warn(`   反向连接违反了层次结构规则，已跳过此三元组`);
-            } else if (targetLayer === sourceLayer) {
-                // ❌ 拒绝同层连接
-                console.warn(`❌ 拒绝同层连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
-                console.warn(`   同层连接违反了层次结构规则，已跳过此三元组`);
             } else {
                 // ❌ 拒绝跨层连接
                 console.warn(`❌ 拒绝跨层连接三元组: (${source}, ${triple.relation}, ${target}, ${layer})`);
@@ -690,16 +686,9 @@ function convertTriplesToConceptData(triples) {
             return;
         }
         
-        // 🔴🔴🔴 再次验证：确保源节点和目标节点的实际层级满足要求（禁止同层连接）
+        // 🔴🔴🔴 再次验证：确保源节点和目标节点的实际层级满足要求（允许同层连接）
         const sourceLayer = getNodeLayer(source.trim());
         const targetLayer = getNodeLayer(target.trim());
-        
-        // 禁止同层连接
-        if (sourceLayer === targetLayer) {
-            console.warn(`❌ 最终过滤：拒绝同层连接 (${source}[L${sourceLayer}] -> ${target}[L${targetLayer}])`);
-            console.warn(`   连接词: "${relation}"，同层连接违反层次结构规则，已跳过`);
-            return;
-        }
         
         // 禁止反向连接（从低层到高层）
         if (sourceLayer > targetLayer) {
@@ -708,11 +697,17 @@ function convertTriplesToConceptData(triples) {
             return;
         }
         
-        // 禁止跨层连接（非相邻层）
-        if (targetLayer !== sourceLayer + 1) {
+        // 允许同层连接和相邻层连接
+        // 禁止跨层连接（非相邻层且非同层）
+        if (targetLayer !== sourceLayer + 1 && targetLayer !== sourceLayer) {
             console.warn(`❌ 最终过滤：拒绝跨层连接 (${source}[L${sourceLayer}] -> ${target}[L${targetLayer}])`);
             console.warn(`   连接词: "${relation}"，跨层连接违反层次结构规则，已跳过`);
             return;
+        }
+        
+        // 同层连接标记
+        if (sourceLayer === targetLayer) {
+            console.log(`✓ 允许同层连接: (${source}[L${sourceLayer}] -> ${target}[L${targetLayer}])，连接词: "${relation}"`);
         }
         
         // 添加关系连线
@@ -802,6 +797,165 @@ function convertTriplesToConceptData(triples) {
     nodes.forEach(node => {
         console.log(`  - ${node.label}: layer=${node.layer}`);
     });
+    
+    // 🔴🔴🔴 相似节点检测与合并（关键步骤）
+    console.log('🔍 开始检测和合并相似节点...');
+    const nodeLabelMap = new Map(); // 存储节点ID到标签的映射
+    nodes.forEach(node => {
+        nodeLabelMap.set(node.id, node.label);
+    });
+    
+    // 相似度检测函数（简化版，基于关键词匹配）
+    const isSimilarNode = (label1, label2) => {
+        const normalize = (str) => {
+            // 移除常见的修饰词和方向词
+            return str.replace(/^(从|在|就|其|的|了|是|有|为|方向|方面|看|而言|上|中|下)/g, '')
+                     .replace(/(方向|方面|看|而言|上|中|下)$/g, '')
+                     .trim();
+        };
+        
+        const norm1 = normalize(label1);
+        const norm2 = normalize(label2);
+        
+        // 如果规范化后的标签相同或高度相似，认为是相似节点
+        if (norm1 === norm2) {
+            return true;
+        }
+        
+        // 检查是否一个包含另一个（去除修饰词后）
+        if (norm1.length > 0 && norm2.length > 0) {
+            if (norm1.includes(norm2) || norm2.includes(norm1)) {
+                // 确保不是完全不同的概念（长度差异不能太大）
+                const lengthRatio = Math.min(norm1.length, norm2.length) / Math.max(norm1.length, norm2.length);
+                if (lengthRatio > 0.5) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    };
+    
+    // 查找相似节点并创建合并映射
+    const mergeMap = new Map(); // 存储需要合并的节点：旧节点ID -> 新节点ID
+    const processedNodes = new Set();
+    
+    nodes.forEach(node1 => {
+        if (processedNodes.has(node1.id)) {
+            return;
+        }
+        
+        // 查找与node1相似的节点
+        const similarNodes = nodes.filter(node2 => {
+            if (node2.id === node1.id || processedNodes.has(node2.id)) {
+                return false;
+            }
+            // 只合并同一层级的相似节点
+            if (node1.layer !== node2.layer) {
+                return false;
+            }
+            return isSimilarNode(node1.label, node2.label);
+        });
+        
+        if (similarNodes.length > 0) {
+            // 选择最简洁的标签作为统一标签
+            const allLabels = [node1.label, ...similarNodes.map(n => n.label)];
+            const unifiedLabel = allLabels.reduce((shortest, current) => {
+                const normalize = (str) => str.replace(/^(从|在|就|其|的|了|是|有|为|方向|方面|看|而言|上|中|下)/g, '')
+                                              .replace(/(方向|方面|看|而言|上|中|下)$/g, '')
+                                              .trim();
+                const normShortest = normalize(shortest);
+                const normCurrent = normalize(current);
+                // 优先选择规范化后更短的标签
+                if (normCurrent.length < normShortest.length) {
+                    return current;
+                }
+                // 如果长度相同，选择原始标签更短的
+                if (normCurrent.length === normShortest.length && current.length < shortest.length) {
+                    return current;
+                }
+                return shortest;
+            });
+            
+            console.log(`  🔗 发现相似节点，合并为: "${unifiedLabel}"`);
+            console.log(`     - "${node1.label}" (保留)`);
+            
+            // 将所有相似节点合并到node1
+            similarNodes.forEach(similarNode => {
+                mergeMap.set(similarNode.id, node1.id);
+                processedNodes.add(similarNode.id);
+                console.log(`     - "${similarNode.label}" (合并到 "${unifiedLabel}")`);
+            });
+            
+            // 如果统一标签与node1的标签不同，更新node1的标签
+            if (unifiedLabel !== node1.label) {
+                console.log(`     - 更新节点标签: "${node1.label}" -> "${unifiedLabel}"`);
+                node1.label = unifiedLabel;
+            }
+        }
+        
+        processedNodes.add(node1.id);
+    });
+    
+    // 如果发现相似节点，执行合并
+    if (mergeMap.size > 0) {
+        console.log(`✅ 共发现 ${mergeMap.size} 个相似节点需要合并`);
+        
+        // 更新所有连线，将合并的节点ID替换为统一节点ID
+        links.forEach(link => {
+            if (mergeMap.has(link.source)) {
+                link.source = mergeMap.get(link.source);
+            }
+            if (mergeMap.has(link.target)) {
+                link.target = mergeMap.get(link.target);
+            }
+        });
+        
+        // 移除重复的连线（源节点和目标节点都相同的连线）
+        const linkKeySet = new Set();
+        const uniqueLinks = [];
+        links.forEach(link => {
+            const linkKey = `${link.source}-${link.label}-${link.target}`;
+            if (!linkKeySet.has(linkKey)) {
+                linkKeySet.add(linkKey);
+                uniqueLinks.push(link);
+            } else {
+                console.log(`  🗑️ 移除重复连线: ${nodeLabelMap.get(link.source)} --[${link.label}]--> ${nodeLabelMap.get(link.target)}`);
+            }
+        });
+        links.length = 0;
+        links.push(...uniqueLinks);
+        
+        // 移除被合并的节点
+        const nodesToKeep = nodes.filter(node => !mergeMap.has(node.id));
+        console.log(`✅ 合并完成: 从 ${nodes.length} 个节点减少到 ${nodesToKeep.length} 个节点`);
+        nodes.length = 0;
+        nodes.push(...nodesToKeep);
+    } else {
+        console.log('✅ 未发现相似节点，无需合并');
+    }
+    
+    // 🚫 检查并移除孤立节点（没有任何连接线的节点）
+    const nodeIdsInLinks = new Set();
+    links.forEach(link => {
+        nodeIdsInLinks.add(link.source);
+        nodeIdsInLinks.add(link.target);
+    });
+    
+    const isolatedNodes = nodes.filter(node => !nodeIdsInLinks.has(node.id));
+    if (isolatedNodes.length > 0) {
+        console.warn(`⚠️ 发现 ${isolatedNodes.length} 个孤立节点（没有任何连接线），将被移除:`);
+        isolatedNodes.forEach(node => {
+            console.warn(`  - 孤立节点: "${node.label}" (id: ${node.id}, layer: ${node.layer})`);
+        });
+        
+        // 移除孤立节点
+        const filteredNodes = nodes.filter(node => nodeIdsInLinks.has(node.id));
+        console.log(`✅ 已移除 ${isolatedNodes.length} 个孤立节点，剩余 ${filteredNodes.length} 个节点`);
+        conceptData.nodes = filteredNodes;
+    } else {
+        console.log('✅ 所有节点都有连接线，没有孤立节点');
+    }
     
     return conceptData;
 }
