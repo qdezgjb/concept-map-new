@@ -911,18 +911,49 @@ function calculateCurvedPath(startX, startY, endX, endY, isFirstLink) {
     if (isFirstLink === false) {
         // 同级连接：强制向下弯曲（从节点下方通过）
         // 确保控制点在起点和终点的下方
-        // perpY 的符号取决于 dx 的方向：
-        // - 如果 dx > 0（从左到右），perpY > 0（向下），使用 -1 让控制点更下方
-        // - 如果 dx < 0（从右到左），perpY < 0（向上），使用 1 让控制点更下方
-        // 因为：如果 perpY < 0，使用 1 时，controlY = midY + perpY * curvature * 1 = midY + 负值 = midY - |perpY| * curvature，控制点在下方
-        curveDirection = perpY > 0 ? -1 : 1;
+        const maxY = Math.max(startY, endY);
+        // 先尝试一个方向
+        const testY1 = midY + perpY * curvature;
+        const testY2 = midY - perpY * curvature;
+        
+        // 选择让控制点更下方的方向
+        if (testY1 > maxY && testY2 > maxY) {
+            // 两个方向都在下方，选择更下方的
+            curveDirection = testY1 > testY2 ? 1 : -1;
+        } else if (testY1 > maxY) {
+            curveDirection = 1;
+        } else if (testY2 > maxY) {
+            curveDirection = -1;
+        } else {
+            // 两个方向都不够下方，强制向下
+            // 使用perpY的符号：如果perpY>0（从左到右），使用-1让控制点更下方
+            curveDirection = perpY > 0 ? -1 : 1;
+        }
     } else {
         // 双向连接：第一条线向上弯曲，第二条线向下弯曲
         curveDirection = isFirstLink ? 1 : -1;
     }
     
-    const controlX = midX + perpX * curvature * curveDirection;
-    const controlY = midY + perpY * curvature * curveDirection;
+    let controlX = midX + perpX * curvature * curveDirection;
+    let controlY = midY + perpY * curvature * curveDirection;
+    
+    // 对于同级连接，强制确保控制点在起点和终点下方
+    if (isFirstLink === false) {
+        const maxY = Math.max(startY, endY);
+        if (controlY <= maxY) {
+            // 强制控制点在maxY下方至少80px（确保明显在节点下方）
+            controlY = maxY + 80;
+            // 保持控制点与中点的X距离比例，但调整Y值
+            const originalOffsetX = controlX - midX;
+            const originalOffsetY = controlY - midY;
+            // 如果原始偏移Y不为0，保持X偏移的比例
+            if (Math.abs(originalOffsetY) > 0.001) {
+                const newOffsetY = controlY - midY;
+                const ratio = newOffsetY / originalOffsetY;
+                controlX = midX + originalOffsetX * ratio;
+            }
+        }
+    }
     
     // 使用二次贝塞尔曲线创建圆弧
     const path = `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`;
