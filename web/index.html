@@ -40,6 +40,10 @@
                         <span class="tab-icon">⭐</span>
                         <span class="tab-label">概念图评价</span>
                     </button>
+                    <button class="function-tab" data-tab="scaffold">
+                        <span class="tab-icon">🗺️</span>
+                        <span class="tab-label">支架概念图生成</span>
+                    </button>
                 </div>
                 
                 <!-- 功能模块内容区域 -->
@@ -116,6 +120,36 @@
                                 <input type="file" id="uploadImage" accept="image/*" class="file-input" style="display: none;">
                                 <button class="btn btn-primary" id="uploadImageBtn">📤 上传图片</button>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- 功能5：支架概念图生成 -->
+                    <div class="function-module" id="function-scaffold">
+                        <div class="function-module-header">
+                            <h3>🗺️ 支架概念图生成</h3>
+                            <p class="function-module-desc">选择支架类型，生成相应复杂度的概念图</p>
+                        </div>
+                        <div class="function-module-content">
+                            <div class="input-group">
+                                <label for="scaffoldFocusQuestion">焦点问题：</label>
+                                <input type="text" id="scaffoldFocusQuestion" placeholder="请输入焦点问题" class="input-field">
+                            </div>
+                            <div class="input-group" style="margin-top: 15px;">
+                                <label>支架类型：</label>
+                                <div style="margin-top: 10px;">
+                                    <label style="display: flex; align-items: center; margin-bottom: 10px; cursor: pointer;">
+                                        <input type="radio" name="scaffoldType" value="high" id="scaffoldTypeHigh" style="margin-right: 8px;">
+                                        <span>高支架类型</span>
+                                        <span style="margin-left: 8px; color: #6c757d; font-size: 0.9rem;">（提供较为完整的图示和空缺的概念）</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; cursor: pointer;">
+                                        <input type="radio" name="scaffoldType" value="low" id="scaffoldTypeLow" style="margin-right: 8px;">
+                                        <span>低支架类型</span>
+                                        <span style="margin-left: 8px; color: #6c757d; font-size: 0.9rem;">（提供概念和标签的支架）</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary" id="generateScaffoldConceptMapBtn">生成支架概念图</button>
                         </div>
                     </div>
                 </div>

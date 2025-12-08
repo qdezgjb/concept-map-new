@@ -426,6 +426,1050 @@ async function exploreMisconception(topic) {
 }
 
 /**
+ * 生成高支架概念图
+ * @param {string} focusQuestion - 焦点问题
+ */
+async function generateHighScaffoldConceptMap(focusQuestion) {
+    console.log('开始生成高支架概念图...', { focusQuestion });
+    
+    if (isGenerating) {
+        console.log('正在生成中，忽略重复请求');
+        return;
+    }
+    
+    isGenerating = true;
+    
+    try {
+        // 清除之前的概念图内容
+        clearPreviousConceptMap();
+        
+        // 显示概念图展示区域
+        const conceptMapDisplay = document.querySelector('.concept-map-display');
+        if (conceptMapDisplay) {
+            conceptMapDisplay.style.display = 'flex';
+            // 设置为高支架模式布局（左右分栏）
+            conceptMapDisplay.classList.add('scaffold-mode');
+        }
+        
+        // 隐藏占位符
+        if (window.graphPlaceholder) {
+            window.graphPlaceholder.style.display = 'none';
+        }
+        
+        // 显示加载状态
+        showLoadingAnimation();
+        
+        // 更新流程状态
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🗺️ 高支架概念图生成</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>正在生成完整概念图...</p>
+                    <p style="margin: 5px 0;"><strong>焦点问题：</strong>${focusQuestion}</p>
+                    <p style="margin: 5px 0; color: #667eea;">✨ AI正在生成概念图...</p>
+                </div>
+            `;
+        }
+        
+        // 步骤1：生成介绍文本（用于提取三元组）
+        console.log('=== 步骤1：生成介绍文本 ===');
+        let introText = '';
+        const introResult = await window.llmManager.generateIntroduction(
+            focusQuestion,
+            (chunk) => {
+                introText += chunk;
+            }
+        );
+        
+        if (!introResult || !introResult.success) {
+            throw new Error(introResult?.message || '介绍文本生成失败');
+        }
+        
+        introText = introResult.text || introText;
+        console.log('介绍文本生成完成，长度:', introText.length);
+        
+        // 显示生成的介绍文本到文本内容展示区域
+        if (window.aiIntroText) {
+            const displayText = introText.length > 2000 
+                ? introText.substring(0, 2000) + '...' 
+                : introText;
+            window.aiIntroText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 15px;">📝 AI生成的介绍文本</h4>
+                    <div style="line-height: 1.8; color: #333; font-size: 14px;">
+                        <div style="white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto;">${displayText}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 步骤2：提取三元组
+        console.log('=== 步骤2：提取三元组 ===');
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🗺️ 高支架概念图生成</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>正在提取三元组...</p>
+                    <p style="margin: 5px 0;"><strong>焦点问题：</strong>${focusQuestion}</p>
+                </div>
+            `;
+        }
+        
+        const triplesResult = await window.llmManager.extractTriples(introText);
+        if (!triplesResult || !triplesResult.success || !triplesResult.triples) {
+            throw new Error(triplesResult?.message || '三元组提取失败');
+        }
+        
+        const triples = triplesResult.triples;
+        console.log('三元组提取完成，数量:', triples.length);
+        
+        // 步骤3：转换为概念图数据
+        console.log('=== 步骤3：转换为概念图数据 ===');
+        const fullConceptData = window.convertTriplesToConceptData(triples);
+        console.log('概念图数据转换完成:', fullConceptData);
+        
+        // 保存完整的概念图数据（作为专家图）
+        window.expertConceptMapData = JSON.parse(JSON.stringify(fullConceptData));
+        
+        // 步骤4：移除部分节点到待选概念区
+        console.log('=== 步骤4：移除部分节点到待选概念区 ===');
+        const { incompleteGraph, candidateNodes } = removeNodesForScaffold(fullConceptData);
+        
+        // 保存待完成的概念图数据
+        window.currentGraphData = incompleteGraph;
+        
+        // 保存待选节点
+        window.scaffoldCandidateNodes = candidateNodes;
+        
+        // 步骤5：渲染待完成的概念图（右侧）
+        console.log('=== 步骤5：渲染待完成的概念图 ===');
+        setupScaffoldLayout();
+        
+        // 应用布局算法到待完成的概念图
+        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        let layoutAppliedGraph = incompleteGraph;
+        
+        try {
+            if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+                layoutAppliedGraph = window.applySugiyamaLayout(incompleteGraph);
+            } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
+                layoutAppliedGraph = window.applyForceDirectedLayout(incompleteGraph, {
+                    width: 2400,
+                    height: 1200,
+                    iterations: 300,
+                    coolingFactor: 0.95,
+                    linkDistance: 100,
+                    nodeCharge: -300,
+                    nodeSpacing: 60
+                });
+            }
+        } catch (error) {
+            console.error('布局算法应用失败:', error);
+        }
+        
+        displayIncompleteConceptMap(layoutAppliedGraph);
+        displayCandidateNodes(candidateNodes);
+        
+        // 更新流程状态
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🗺️ 高支架概念图生成</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>生成完成，请将待选概念添加到概念图中</p>
+                    <p style="margin: 5px 0;"><strong>焦点问题：</strong>${focusQuestion}</p>
+                    <p style="margin: 5px 0; color: #28a745;">✅ 已生成概念图，${candidateNodes.length}个待选概念</p>
+                </div>
+            `;
+        }
+        
+        // 恢复按钮状态
+        if (window.generateScaffoldConceptMapBtn) {
+            window.generateScaffoldConceptMapBtn.classList.remove('loading');
+            window.generateScaffoldConceptMapBtn.textContent = '生成支架概念图';
+            window.generateScaffoldConceptMapBtn.disabled = false;
+        }
+        
+        isGenerating = false;
+        showMessage('高支架概念图生成完成！', 'success');
+        
+    } catch (error) {
+        console.error('❌ 生成高支架概念图失败:', error);
+        
+        // 恢复按钮状态
+        if (window.generateScaffoldConceptMapBtn) {
+            window.generateScaffoldConceptMapBtn.classList.remove('loading');
+            window.generateScaffoldConceptMapBtn.textContent = '生成支架概念图';
+            window.generateScaffoldConceptMapBtn.disabled = false;
+        }
+        
+        isGenerating = false;
+        showMessage('生成失败: ' + (error.message || '未知错误'), 'error');
+    }
+}
+
+/**
+ * 从完整概念图中移除部分节点，用于支架模式
+ * @param {Object} fullGraphData - 完整的概念图数据
+ * @returns {Object} { incompleteGraph, candidateNodes }
+ */
+function removeNodesForScaffold(fullGraphData) {
+    const nodes = [...fullGraphData.nodes];
+    const links = [...fullGraphData.links];
+    
+    // 计算要移除的节点数量（移除约30-40%的节点）
+    const removeCount = Math.max(1, Math.floor(nodes.length * 0.35));
+    
+    // 优先移除中间层级的节点（L2、L3），保留L1和部分L2
+    const nodesByLayer = {};
+    nodes.forEach(node => {
+        const layer = node.layer || 1;
+        if (!nodesByLayer[layer]) {
+            nodesByLayer[layer] = [];
+        }
+        nodesByLayer[layer].push(node);
+    });
+    
+    // 选择要移除的节点
+    const nodesToRemove = [];
+    const nodeIdsToRemove = new Set();
+    
+    // 优先从L2和L3层选择节点
+    const layers = Object.keys(nodesByLayer).map(Number).sort((a, b) => a - b);
+    let remainingCount = removeCount;
+    
+    for (const layer of layers) {
+        if (layer === 1) continue; // 保留L1层节点
+        
+        const layerNodes = nodesByLayer[layer];
+        const takeCount = Math.min(remainingCount, Math.floor(layerNodes.length * 0.5));
+        
+        // 随机选择节点
+        const shuffled = [...layerNodes].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < takeCount && i < shuffled.length; i++) {
+            nodesToRemove.push(shuffled[i]);
+            nodeIdsToRemove.add(shuffled[i].id);
+            remainingCount--;
+        }
+        
+        if (remainingCount <= 0) break;
+    }
+    
+    // 如果还需要移除更多节点，从L2层继续
+    if (remainingCount > 0 && nodesByLayer[2]) {
+        const layer2Nodes = nodesByLayer[2].filter(n => !nodeIdsToRemove.has(n.id));
+        const shuffled = [...layer2Nodes].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < remainingCount && i < shuffled.length; i++) {
+            nodesToRemove.push(shuffled[i]);
+            nodeIdsToRemove.add(shuffled[i].id);
+        }
+    }
+    
+    // 创建待完成的概念图（移除选中的节点及其相关连线）
+    const incompleteNodes = nodes.filter(node => !nodeIdsToRemove.has(node.id));
+    // 只保留两端节点都存在的连接
+    const incompleteLinks = links.filter(link => {
+        const sourceExists = !nodeIdsToRemove.has(link.source);
+        const targetExists = !nodeIdsToRemove.has(link.target);
+        return sourceExists && targetExists;
+    });
+    
+    const incompleteGraph = {
+        nodes: incompleteNodes,
+        links: incompleteLinks
+    };
+    
+    console.log(`待完成概念图: ${incompleteNodes.length} 个节点, ${incompleteLinks.length} 条连接`);
+    
+    // 待选节点（移除的节点）
+    const candidateNodes = nodesToRemove.map(node => ({
+        id: node.id,
+        label: node.label,
+        layer: node.layer,
+        type: node.type,
+        description: node.description,
+        importance: node.importance
+    }));
+    
+    console.log(`移除了 ${candidateNodes.length} 个节点到待选概念区`);
+    console.log('待选节点:', candidateNodes.map(n => n.label));
+    
+    return { incompleteGraph, candidateNodes };
+}
+
+/**
+ * 设置支架模式的布局（左右分栏）
+ */
+function setupScaffoldLayout() {
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (!conceptMapDisplay) return;
+    
+    // 创建左右分栏布局
+    let scaffoldContainer = conceptMapDisplay.querySelector('.scaffold-container');
+    if (!scaffoldContainer) {
+        scaffoldContainer = document.createElement('div');
+        scaffoldContainer.className = 'scaffold-container';
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; height: 100%; gap: 20px;';
+        
+        // 清空原有内容
+        conceptMapDisplay.innerHTML = '';
+        conceptMapDisplay.appendChild(scaffoldContainer);
+    }
+    
+    // 左侧：待选概念区
+    let candidateArea = scaffoldContainer.querySelector('.candidate-nodes-area');
+    if (!candidateArea) {
+        candidateArea = document.createElement('div');
+        candidateArea.className = 'candidate-nodes-area';
+        candidateArea.style.cssText = `
+            width: 300px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid #e9ecef;
+            overflow-y: auto;
+            max-height: 800px;
+        `;
+        candidateArea.innerHTML = `
+            <h4 style="margin-bottom: 15px; color: #2c3e50;">待选概念</h4>
+            <div class="candidate-nodes-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+            <button id="showExpertMapBtn" class="btn btn-secondary" style="width: 100%; margin-top: 20px;">
+                📊 展示专家图
+            </button>
+        `;
+        scaffoldContainer.appendChild(candidateArea);
+    }
+    
+    // 右侧：待完成的概念图
+    let graphArea = scaffoldContainer.querySelector('.scaffold-graph-area');
+    if (!graphArea) {
+        graphArea = document.createElement('div');
+        graphArea.className = 'scaffold-graph-area';
+        graphArea.style.cssText = `
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            position: relative;
+            overflow: auto;
+        `;
+        graphArea.innerHTML = `
+            <svg width="100%" height="100%" class="scaffold-concept-graph" viewBox="0 0 2400 1200" style="min-height: 800px;">
+            </svg>
+        `;
+        scaffoldContainer.appendChild(graphArea);
+    }
+    
+    // 专家图展示区域（初始隐藏）
+    let expertMapArea = conceptMapDisplay.querySelector('.expert-map-area');
+    if (!expertMapArea) {
+        expertMapArea = document.createElement('div');
+        expertMapArea.className = 'expert-map-area';
+        expertMapArea.style.cssText = `
+            width: 100%;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            display: none;
+        `;
+        expertMapArea.innerHTML = `
+            <h4 style="margin-bottom: 15px; color: #2c3e50;">专家图（完整概念图）</h4>
+            <svg width="100%" height="100%" class="expert-concept-graph" viewBox="0 0 2400 1200" style="min-height: 600px;">
+            </svg>
+        `;
+        conceptMapDisplay.appendChild(expertMapArea);
+    }
+    
+    // 绑定展示专家图按钮事件
+    const showExpertBtn = candidateArea.querySelector('#showExpertMapBtn');
+    if (showExpertBtn && !showExpertBtn.dataset.bound) {
+        showExpertBtn.dataset.bound = 'true';
+        showExpertBtn.addEventListener('click', function() {
+            const isVisible = expertMapArea.style.display !== 'none';
+            if (isVisible) {
+                expertMapArea.style.display = 'none';
+                this.textContent = '📊 展示专家图';
+            } else {
+                expertMapArea.style.display = 'block';
+                this.textContent = '📊 隐藏专家图';
+                // 如果专家图还没有渲染，则渲染它
+                if (!expertMapArea.querySelector('.expert-concept-graph g[data-rendered="true"]')) {
+                    displayExpertConceptMap(window.expertConceptMapData);
+                }
+            }
+        });
+    }
+}
+
+/**
+ * 显示待完成的概念图（右侧）
+ */
+function displayIncompleteConceptMap(graphData) {
+    const svg = document.querySelector('.scaffold-concept-graph');
+    if (!svg) {
+        console.error('找不到.scaffold-concept-graph SVG元素');
+        return;
+    }
+    
+    // 清空SVG
+    svg.innerHTML = '';
+    
+    // 设置currentGraphData
+    window.currentGraphData = graphData;
+    
+    // 使用drawGraph函数直接渲染到指定的SVG
+    if (window.drawGraph) {
+        // 临时将SVG添加到concept-graph类，以便drawGraph能找到它
+        const originalClass = svg.className.baseVal;
+        svg.classList.add('concept-graph');
+        
+        // 调用drawGraph渲染
+        window.drawGraph(graphData);
+        
+        // 恢复原始类名（保留scaffold-concept-graph）
+        svg.className.baseVal = originalClass;
+    } else {
+        console.error('drawGraph函数不存在');
+    }
+    
+    // 重新设置拖放区域
+    setupGraphDropZone();
+}
+
+/**
+ * 设置概念图为拖放目标区域
+ */
+function setupGraphDropZone() {
+    const graphArea = document.querySelector('.scaffold-graph-area');
+    const svg = document.querySelector('.scaffold-concept-graph');
+    
+    if (!graphArea || !svg) return;
+    
+    // 移除之前的事件监听器（通过重新设置）
+    graphArea.ondragover = null;
+    graphArea.ondrop = null;
+    graphArea.ondragenter = null;
+    graphArea.ondragleave = null;
+    
+    // 允许拖放
+    graphArea.ondragover = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        
+        // 添加拖放提示样式
+        graphArea.style.border = '3px dashed #667eea';
+        graphArea.style.background = 'rgba(102, 126, 234, 0.05)';
+    };
+    
+    graphArea.ondragenter = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        graphArea.style.border = '3px dashed #667eea';
+        graphArea.style.background = 'rgba(102, 126, 234, 0.05)';
+    };
+    
+    graphArea.ondragleave = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // 只有当离开整个区域时才移除样式
+        const rect = graphArea.getBoundingClientRect();
+        const x = e.clientX;
+        const y = e.clientY;
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+            graphArea.style.border = '1px solid #e9ecef';
+            graphArea.style.background = 'white';
+        }
+    };
+    
+    graphArea.ondrop = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 恢复样式
+        graphArea.style.border = '1px solid #e9ecef';
+        graphArea.style.background = 'white';
+        
+        // 获取拖拽的节点ID
+        const nodeId = e.dataTransfer.getData('text/plain');
+        if (!nodeId || !window.draggingNode) {
+            return;
+        }
+        
+        // 计算在SVG中的坐标
+        const svgRect = svg.getBoundingClientRect();
+        const viewBox = svg.getAttribute('viewBox') || '0 0 2400 1200';
+        const viewBoxParts = viewBox.split(' ').map(Number);
+        const viewBoxX = viewBoxParts[0];
+        const viewBoxY = viewBoxParts[1];
+        const viewBoxWidth = viewBoxParts[2];
+        const viewBoxHeight = viewBoxParts[3];
+        
+        // 将鼠标坐标转换为SVG坐标
+        const mouseX = e.clientX - svgRect.left;
+        const mouseY = e.clientY - svgRect.top;
+        const svgX = viewBoxX + (mouseX / svgRect.width) * viewBoxWidth;
+        const svgY = viewBoxY + (mouseY / svgRect.height) * viewBoxHeight;
+        
+        console.log('拖放到位置:', svgX, svgY);
+        
+        // 添加节点到概念图（使用拖放位置）
+        addCandidateNodeToGraphAtPosition(window.draggingNode, svgX, svgY);
+        
+        // 清除拖拽状态
+        window.draggingNodeId = null;
+        window.draggingNode = null;
+    };
+}
+
+/**
+ * 显示待选节点（左侧）
+ */
+function displayCandidateNodes(candidateNodes) {
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    if (!candidateList) return;
+    
+    candidateList.innerHTML = '';
+    
+    candidateNodes.forEach(node => {
+        const nodeItem = document.createElement('div');
+        nodeItem.className = 'candidate-node-item';
+        nodeItem.dataset.nodeId = node.id;
+        nodeItem.draggable = true; // 启用拖拽
+        nodeItem.style.cssText = `
+            padding: 12px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            cursor: grab;
+            transition: all 0.2s;
+            user-select: none;
+        `;
+        nodeItem.innerHTML = `
+            <div style="font-weight: 600; color: #2c3e50; margin-bottom: 4px;">${node.label}</div>
+            <div style="font-size: 12px; color: #6c757d;">层级: L${node.layer || 1}</div>
+            <div style="font-size: 11px; color: #667eea; margin-top: 4px;">👆 拖拽到右侧概念图</div>
+        `;
+        
+        // 拖拽开始
+        nodeItem.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('text/plain', node.id);
+            e.dataTransfer.effectAllowed = 'move';
+            this.style.opacity = '0.5';
+            this.style.cursor = 'grabbing';
+            
+            // 创建拖拽预览
+            const dragPreview = this.cloneNode(true);
+            dragPreview.style.cssText = `
+                position: absolute;
+                top: -1000px;
+                left: -1000px;
+                width: ${this.offsetWidth}px;
+                background: white;
+                border: 2px solid #667eea;
+                border-radius: 6px;
+                padding: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            `;
+            document.body.appendChild(dragPreview);
+            e.dataTransfer.setDragImage(dragPreview, this.offsetWidth / 2, this.offsetHeight / 2);
+            
+            // 标记正在拖拽的节点
+            window.draggingNodeId = node.id;
+            window.draggingNode = node;
+        });
+        
+        // 拖拽结束
+        nodeItem.addEventListener('dragend', function(e) {
+            this.style.opacity = '1';
+            this.style.cursor = 'grab';
+            window.draggingNodeId = null;
+            window.draggingNode = null;
+            
+            // 移除拖拽预览
+            const dragPreview = document.querySelector('.drag-preview');
+            if (dragPreview) {
+                dragPreview.remove();
+            }
+        });
+        
+        // 悬停效果
+        nodeItem.addEventListener('mouseenter', function() {
+            if (!this.draggable || this.style.opacity !== '0.5') {
+                this.style.background = '#f0f4ff';
+                this.style.transform = 'translateX(5px)';
+            }
+        });
+        nodeItem.addEventListener('mouseleave', function() {
+            if (!this.draggable || this.style.opacity !== '0.5') {
+                this.style.background = 'white';
+                this.style.transform = 'translateX(0)';
+            }
+        });
+        
+        candidateList.appendChild(nodeItem);
+    });
+    
+    // 设置右侧概念图为拖放目标
+    setupGraphDropZone();
+}
+
+/**
+ * 将待选节点添加到概念图（使用拖放位置）
+ */
+function addCandidateNodeToGraphAtPosition(node, x, y) {
+    if (!window.currentGraphData) {
+        window.currentGraphData = { nodes: [], links: [] };
+    }
+    
+    // 检查节点是否已存在
+    const exists = window.currentGraphData.nodes.some(n => n.id === node.id);
+    if (exists) {
+        showMessage('该概念已添加到概念图中', 'warning');
+        return;
+    }
+    
+    // 创建节点副本并设置位置
+    const newNode = {
+        ...node,
+        x: x,
+        y: y
+    };
+    
+    // 添加节点
+    window.currentGraphData.nodes.push(newNode);
+    
+    // 恢复该节点在专家图中的连接关系
+    if (window.expertConceptMapData) {
+        restoreNodeLinks(node.id);
+    }
+    
+    // 从待选列表中移除并标记
+    markCandidateNodeAsAdded(node.id);
+    
+    // 应用布局算法并重新渲染
+    applyLayoutAndRedraw();
+    
+    // 检查是否所有节点都已添加
+    checkScaffoldCompletion();
+    
+    // 更新正确性统计
+    updateCorrectnessStats();
+}
+
+/**
+ * 将待选节点添加到概念图（点击方式，保持向后兼容）
+ */
+function addCandidateNodeToGraph(node) {
+    if (!window.currentGraphData) {
+        window.currentGraphData = { nodes: [], links: [] };
+    }
+    
+    // 检查节点是否已存在
+    const exists = window.currentGraphData.nodes.some(n => n.id === node.id);
+    if (exists) {
+        showMessage('该概念已添加到概念图中', 'warning');
+        return;
+    }
+    
+    // 添加节点（不设置位置，让布局算法自动分配）
+    window.currentGraphData.nodes.push(node);
+    
+    // 恢复该节点在专家图中的连接关系
+    if (window.expertConceptMapData) {
+        restoreNodeLinks(node.id);
+    }
+    
+    // 从待选列表中移除并标记
+    markCandidateNodeAsAdded(node.id);
+    
+    // 应用布局算法并重新渲染
+    applyLayoutAndRedraw();
+    
+    // 检查是否所有节点都已添加
+    checkScaffoldCompletion();
+    
+    // 更新正确性统计
+    updateCorrectnessStats();
+}
+
+/**
+ * 标记待选节点为已添加
+ */
+function markCandidateNodeAsAdded(nodeId) {
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    const nodeItem = candidateList?.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!nodeItem) return;
+    
+    // 获取节点数据
+    const node = window.scaffoldCandidateNodes?.find(n => n.id === nodeId);
+    if (!node) return;
+    
+    // 判断添加是否正确
+    const isCorrect = checkNodeCorrectness(node);
+    
+    // 禁用拖拽
+    nodeItem.draggable = false;
+    nodeItem.style.cursor = 'default';
+    
+    if (isCorrect) {
+        nodeItem.style.background = '#d4edda';
+        nodeItem.style.borderColor = '#28a745';
+        nodeItem.innerHTML = `
+            <div style="font-weight: 600; color: #155724; margin-bottom: 4px;">${node.label} ✓</div>
+            <div style="font-size: 12px; color: #6c757d;">层级: L${node.layer || 1}</div>
+            <div style="font-size: 11px; color: #28a745; margin-top: 4px;">✓ 正确</div>
+        `;
+    } else {
+        nodeItem.style.background = '#f8d7da';
+        nodeItem.style.borderColor = '#dc3545';
+        nodeItem.innerHTML = `
+            <div style="font-weight: 600; color: #721c24; margin-bottom: 4px;">${node.label} ✗</div>
+            <div style="font-size: 12px; color: #6c757d;">层级: L${node.layer || 1}</div>
+            <div style="font-size: 11px; color: #dc3545; margin-top: 4px;">✗ 不正确</div>
+        `;
+    }
+    
+    nodeItem.style.pointerEvents = 'none';
+}
+
+/**
+ * 应用布局算法并重新渲染
+ */
+function applyLayoutAndRedraw() {
+    const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+    let layoutAppliedGraph = window.currentGraphData;
+    
+    try {
+        if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+            layoutAppliedGraph = window.applySugiyamaLayout(window.currentGraphData);
+        } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
+            layoutAppliedGraph = window.applyForceDirectedLayout(window.currentGraphData, {
+                width: 2400,
+                height: 1200,
+                iterations: 300,
+                coolingFactor: 0.95,
+                linkDistance: 100,
+                nodeCharge: -300,
+                nodeSpacing: 60
+            });
+        }
+    } catch (error) {
+        console.error('布局算法应用失败:', error);
+    }
+    
+    // 重新渲染概念图
+    displayIncompleteConceptMap(layoutAppliedGraph);
+    window.currentGraphData = layoutAppliedGraph;
+}
+
+/**
+ * 恢复节点在专家图中的连接关系
+ */
+function restoreNodeLinks(nodeId) {
+    if (!window.expertConceptMapData || !window.currentGraphData) return;
+    
+    // 找到专家图中该节点的所有连接
+    const expertLinks = window.expertConceptMapData.links.filter(link => 
+        link.source === nodeId || link.target === nodeId
+    );
+    
+    // 检查哪些连接可以恢复（两端节点都已存在）
+    expertLinks.forEach(link => {
+        const sourceExists = window.currentGraphData.nodes.some(n => n.id === link.source);
+        const targetExists = window.currentGraphData.nodes.some(n => n.id === link.target);
+        
+        if (sourceExists && targetExists) {
+            // 检查连接是否已存在
+            const linkExists = window.currentGraphData.links.some(l => 
+                (l.source === link.source && l.target === link.target) ||
+                (l.source === link.target && l.target === link.source)
+            );
+            
+            if (!linkExists) {
+                window.currentGraphData.links.push({
+                    id: link.id,
+                    source: link.source,
+                    target: link.target,
+                    label: link.label,
+                    type: link.type
+                });
+            }
+        }
+    });
+}
+
+/**
+ * 检查节点添加是否正确
+ * @param {Object} node - 要检查的节点
+ * @returns {boolean} 是否正确
+ */
+function checkNodeCorrectness(node) {
+    if (!window.expertConceptMapData) {
+        // 如果没有专家图，无法判断，默认返回true
+        return true;
+    }
+    
+    // 检查节点是否存在于专家图中
+    const expertNode = window.expertConceptMapData.nodes.find(n => n.id === node.id);
+    if (!expertNode) {
+        console.warn('节点不在专家图中:', node.id);
+        return false;
+    }
+    
+    // 检查节点标签是否匹配
+    if (expertNode.label !== node.label) {
+        console.warn('节点标签不匹配:', expertNode.label, 'vs', node.label);
+        return false;
+    }
+    
+    // 检查节点层级是否匹配
+    if (expertNode.layer !== node.layer) {
+        console.warn('节点层级不匹配:', expertNode.layer, 'vs', node.layer);
+        return false;
+    }
+    
+    // 节点基本信息匹配，返回true
+    return true;
+}
+
+/**
+ * 更新正确性统计
+ */
+function updateCorrectnessStats() {
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    if (!candidateList) return;
+    
+    const allItems = candidateList.querySelectorAll('.candidate-node-item');
+    let correctCount = 0;
+    let incorrectCount = 0;
+    let totalCount = allItems.length;
+    
+    allItems.forEach(item => {
+        if (item.style.background.includes('d4edda')) {
+            correctCount++;
+        } else if (item.style.background.includes('f8d7da')) {
+            incorrectCount++;
+        }
+    });
+    
+    // 更新统计显示
+    let statsArea = document.querySelector('.scaffold-stats');
+    if (!statsArea) {
+        statsArea = document.createElement('div');
+        statsArea.className = 'scaffold-stats';
+        statsArea.style.cssText = `
+            margin-top: 15px;
+            padding: 12px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        `;
+        const candidateArea = document.querySelector('.candidate-nodes-area');
+        if (candidateArea) {
+            candidateArea.appendChild(statsArea);
+        }
+    }
+    
+    const addedCount = correctCount + incorrectCount;
+    const accuracy = addedCount > 0 ? ((correctCount / addedCount) * 100).toFixed(1) : 0;
+    
+    statsArea.innerHTML = `
+        <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #2c3e50;">完成情况</div>
+        <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px;">
+            已添加: ${addedCount} / ${totalCount}
+        </div>
+        <div style="font-size: 12px; color: #28a745; margin-bottom: 4px;">
+            正确: ${correctCount}
+        </div>
+        <div style="font-size: 12px; color: #dc3545; margin-bottom: 4px;">
+            错误: ${incorrectCount}
+        </div>
+        <div style="font-size: 12px; color: #667eea; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e9ecef;">
+            准确率: ${accuracy}%
+        </div>
+    `;
+}
+
+/**
+ * 检查支架完成情况
+ */
+function checkScaffoldCompletion() {
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    if (!candidateList) return;
+    
+    const allItems = candidateList.querySelectorAll('.candidate-node-item');
+    const remainingNodes = Array.from(allItems).filter(item => 
+        !item.style.background.includes('d4edda') && 
+        !item.style.background.includes('f8d7da')
+    );
+    
+    if (remainingNodes.length === 0 && allItems.length > 0) {
+        // 计算最终统计
+        let correctCount = 0;
+        let incorrectCount = 0;
+        allItems.forEach(item => {
+            if (item.style.background.includes('d4edda')) {
+                correctCount++;
+            } else if (item.style.background.includes('f8d7da')) {
+                incorrectCount++;
+            }
+        });
+        
+        const accuracy = allItems.length > 0 ? ((correctCount / allItems.length) * 100).toFixed(1) : 0;
+        
+        showMessage(
+            `恭喜！您已完成所有概念的添加！正确: ${correctCount}, 错误: ${incorrectCount}, 准确率: ${accuracy}%`, 
+            'success'
+        );
+        
+        // 显示完成提示
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #28a745; margin-bottom: 10px;">✅ 支架概念图完成</h4>
+                    <p style="margin: 5px 0;"><strong>完成情况：</strong>所有概念已添加</p>
+                    <p style="margin: 5px 0;"><strong>正确数量：</strong>${correctCount}</p>
+                    <p style="margin: 5px 0;"><strong>错误数量：</strong>${incorrectCount}</p>
+                    <p style="margin: 5px 0; color: #667eea;"><strong>准确率：</strong>${accuracy}%</p>
+                    <p style="margin-top: 10px; font-size: 12px; color: #6c757d;">
+                        可以点击"展示专家图"按钮查看完整的概念图进行比对
+                    </p>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * 显示专家图（完整概念图）
+ */
+function displayExpertConceptMap(expertData) {
+    const svg = document.querySelector('.expert-concept-graph');
+    if (!svg || !expertData) {
+        console.error('找不到.expert-concept-graph SVG元素或expertData为空');
+        return;
+    }
+    
+    console.log('开始渲染专家图，数据:', expertData);
+    
+    // 清空SVG
+    svg.innerHTML = '';
+    
+    // 先应用布局算法
+    const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+    let layoutAppliedData = expertData;
+    
+    try {
+        if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+            console.log('专家图：应用Sugiyama布局');
+            layoutAppliedData = window.applySugiyamaLayout(expertData);
+        } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
+            console.log('专家图：应用力导向布局');
+            layoutAppliedData = window.applyForceDirectedLayout(expertData, {
+                width: 2400,
+                height: 1200,
+                iterations: 300,
+                coolingFactor: 0.95,
+                linkDistance: 100,
+                nodeCharge: -300,
+                nodeSpacing: 60
+            });
+        }
+    } catch (error) {
+        console.error('专家图布局算法应用失败:', error);
+    }
+    
+    // 临时设置currentGraphData
+    const originalData = window.currentGraphData;
+    window.currentGraphData = layoutAppliedData;
+    
+    // 使用drawGraph函数直接渲染到指定的SVG
+    if (window.drawGraph) {
+        // 临时隐藏其他concept-graph SVG，确保drawGraph找到正确的SVG
+        const otherSvg = document.querySelector('.scaffold-concept-graph');
+        const otherDisplay = otherSvg ? otherSvg.style.display : null;
+        if (otherSvg) {
+            otherSvg.style.display = 'none';
+        }
+        
+        // 保存原始类名
+        const originalClass = svg.className.baseVal;
+        
+        // 临时将SVG添加到concept-graph类，以便drawGraph能找到它
+        svg.classList.add('concept-graph');
+        
+        // 调用drawGraph渲染
+        console.log('调用drawGraph渲染专家图');
+        window.drawGraph(layoutAppliedData);
+        
+        // 恢复类名
+        svg.className.baseVal = originalClass;
+        svg.classList.add('expert-concept-graph');
+        
+        // 恢复其他SVG的显示
+        if (otherSvg && otherDisplay !== null) {
+            otherSvg.style.display = otherDisplay;
+        }
+        
+        // 标记已渲染
+        const g = svg.querySelector('g');
+        if (g) {
+            g.setAttribute('data-rendered', 'true');
+        }
+        
+        // 调整viewBox以确保所有内容可见
+        adjustExpertMapViewBox(svg, layoutAppliedData);
+        
+        // 恢复currentGraphData
+        window.currentGraphData = originalData;
+        
+        console.log('专家图渲染完成');
+    } else {
+        console.error('drawGraph函数不存在');
+    }
+}
+
+/**
+ * 调整专家图的viewBox以确保所有内容可见
+ */
+function adjustExpertMapViewBox(svg, graphData) {
+    if (!svg || !graphData || !graphData.nodes || graphData.nodes.length === 0) {
+        return;
+    }
+    
+    // 计算所有节点的边界
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    graphData.nodes.forEach(node => {
+        const x = node.x || 0;
+        const y = node.y || 0;
+        const width = node.width || 100;
+        const height = node.height || 50;
+        
+        minX = Math.min(minX, x - width / 2);
+        minY = Math.min(minY, y - height / 2);
+        maxX = Math.max(maxX, x + width / 2);
+        maxY = Math.max(maxY, y + height / 2);
+    });
+    
+    // 添加边距
+    const padding = 100;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+    
+    // 设置viewBox
+    const width = maxX - minX;
+    const height = maxY - minY;
+    svg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
+    
+    console.log('专家图viewBox已调整:', `${minX} ${minY} ${width} ${height}`);
+}
+
+/**
  * 从图片生成概念图
  * @param {string} imageData - Base64编码的图片数据
  * @param {string} fileName - 文件名
@@ -1491,6 +2535,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // 获取DOM元素并设为全局变量（让所有模块都能访问）
     window.misconceptionTopicInput = document.getElementById('misconceptionTopic');
     window.exploreMisconceptionBtn = document.getElementById('exploreMisconceptionBtn');
+    window.scaffoldFocusQuestionInput = document.getElementById('scaffoldFocusQuestion');
+    window.generateScaffoldConceptMapBtn = document.getElementById('generateScaffoldConceptMapBtn');
+    window.scaffoldTypeHigh = document.getElementById('scaffoldTypeHigh');
+    window.scaffoldTypeLow = document.getElementById('scaffoldTypeLow');
     window.keywordInput = document.getElementById('keyword');
     window.descriptionTextarea = document.getElementById('description');
     window.keywordBtn = document.getElementById('generateKeywordBtn');
@@ -1639,6 +2687,45 @@ document.addEventListener('DOMContentLoaded', function() {
             
             console.log('开始生成概念图，描述:', description);
             generateConceptMapWithLLM('description', { description: description });
+        });
+    }
+    
+    // 支架概念图生成事件
+    if (window.generateScaffoldConceptMapBtn) {
+        window.generateScaffoldConceptMapBtn.addEventListener('click', function() {
+            console.log('支架概念图生成按钮被点击');
+            const focusQuestion = window.scaffoldFocusQuestionInput?.value.trim();
+            if (!focusQuestion) {
+                showMessage('请输入焦点问题', 'warning');
+                return;
+            }
+            
+            // 检查是否选择了支架类型
+            const scaffoldType = window.scaffoldTypeHigh?.checked ? 'high' : 
+                                window.scaffoldTypeLow?.checked ? 'low' : null;
+            
+            if (!scaffoldType) {
+                showMessage('请选择支架类型（高支架或低支架）', 'warning');
+                return;
+            }
+            
+            // 设置按钮加载状态
+            window.generateScaffoldConceptMapBtn.classList.add('loading');
+            window.generateScaffoldConceptMapBtn.textContent = '生成中...';
+            window.generateScaffoldConceptMapBtn.disabled = true;
+            
+            console.log('开始生成支架概念图，焦点问题:', focusQuestion, '支架类型:', scaffoldType);
+            
+            // 调用支架概念图生成功能
+            if (scaffoldType === 'high') {
+                generateHighScaffoldConceptMap(focusQuestion);
+            } else {
+                // 低支架功能待实现
+                showMessage('低支架功能待实现', 'info');
+                window.generateScaffoldConceptMapBtn.classList.remove('loading');
+                window.generateScaffoldConceptMapBtn.textContent = '生成支架概念图';
+                window.generateScaffoldConceptMapBtn.disabled = false;
+            }
         });
     }
 
