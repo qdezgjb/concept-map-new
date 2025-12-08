@@ -1351,8 +1351,50 @@ function handleDrag(e) {
         const deltaX = e.clientX - dragStartX;
         const deltaY = e.clientY - dragStartY;
         
-        const newX = dragOriginalNodeX + deltaX;
-        const newY = dragOriginalNodeY + deltaY;
+        let newX = dragOriginalNodeX + deltaX;
+        let newY = dragOriginalNodeY + deltaY;
+
+        // 🔴 节点吸附功能：在支架模式下，自动吸附到附近的占位符或节点
+        if (window.scaffoldPlaceholders && window.scaffoldPlaceholders.length > 0) {
+            const snapDistance = 30; // 吸附距离阈值
+            
+            // 检查是否靠近占位符
+            for (const placeholder of window.scaffoldPlaceholders) {
+                // 检查占位符对应的节点是否已添加
+                const nodeExists = currentGraphData.nodes.some(n => n.id === placeholder.id);
+                if (nodeExists) continue;
+                
+                const placeholderX = placeholder.x || 0;
+                const placeholderY = placeholder.y || 0;
+                const distance = Math.sqrt(
+                    Math.pow(newX - placeholderX, 2) + Math.pow(newY - placeholderY, 2)
+                );
+                
+                if (distance < snapDistance) {
+                    // 吸附到占位符位置
+                    newX = placeholderX;
+                    newY = placeholderY;
+                    break;
+                }
+            }
+            
+            // 检查是否靠近其他节点（用于对齐）
+            for (const otherNode of currentGraphData.nodes) {
+                if (otherNode.id === selectedNodeId) continue;
+                
+                const distanceX = Math.abs(newX - otherNode.x);
+                const distanceY = Math.abs(newY - otherNode.y);
+                
+                // 水平对齐
+                if (distanceY < snapDistance && distanceX < 100) {
+                    newY = otherNode.y;
+                }
+                // 垂直对齐
+                if (distanceX < snapDistance && distanceY < 100) {
+                    newX = otherNode.x;
+                }
+            }
+        }
 
         // 更新节点位置
         node.x = newX;

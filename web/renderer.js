@@ -293,8 +293,39 @@ function drawGraph(data) {
         
         // 再渲染普通连线
         regularLinks.forEach(link => {
-            const source = nodeById.get(link.source);
-            const target = nodeById.get(link.target);
+            // 🔴 支持支架模式：连线可能连接到占位符（被移除的节点）
+            let source = nodeById.get(link.source);
+            let target = nodeById.get(link.target);
+            
+            // 如果源节点或目标节点不存在，检查是否是占位符
+            if (!source && link.sourceRemoved && window.scaffoldPlaceholders) {
+                const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
+                if (placeholder) {
+                    // 创建临时节点对象用于绘制连线
+                    source = {
+                        id: placeholder.id,
+                        x: placeholder.x || 0,
+                        y: placeholder.y || 0,
+                        width: placeholder.width || 100,
+                        height: placeholder.height || 50
+                    };
+                }
+            }
+            
+            if (!target && link.targetRemoved && window.scaffoldPlaceholders) {
+                const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+                if (placeholder) {
+                    // 创建临时节点对象用于绘制连线
+                    target = {
+                        id: placeholder.id,
+                        x: placeholder.x || 0,
+                        y: placeholder.y || 0,
+                        width: placeholder.width || 100,
+                        height: placeholder.height || 50
+                    };
+                }
+            }
+            
             if (!source || !target) return;
             
             // 计算折线路径（传入所有连线以检测双向连接）
@@ -491,8 +522,11 @@ function drawGraph(data) {
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.setAttribute('data-node-id', node.id);
 
+            // 🔴 检查是否是待填入节点（支架模式）
+            const isPlaceholder = node.isPlaceholder === true;
+
             // 计算节点尺寸 - 根据文字内容自动调整
-            const nodeLabel = node.label || `节点${idx + 1}`;
+            const nodeLabel = isPlaceholder ? '待填入' : (node.label || `节点${idx + 1}`);
             const nodeDimensions = window.calculateNodeDimensions(nodeLabel, 90, 45, 20); // 放大节点尺寸和内边距
             
             // 优先使用保存的尺寸，如果没有保存则使用计算出的尺寸
@@ -511,16 +545,26 @@ function drawGraph(data) {
             rect.setAttribute('height', nodeHeight);
             rect.setAttribute('rx', radius);
             rect.setAttribute('ry', radius);
-            rect.setAttribute('fill', '#667eea');
-            rect.setAttribute('fill-opacity', '0.9');
             
-            // 根据选中状态设置边框样式
-            if (selectedNodeId === node.id) {
-                rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
-                rect.setAttribute('stroke-width', '3');
-        } else {
-                rect.setAttribute('stroke', '#fff');
+            // 🔴 待填入节点使用虚线框样式
+            if (isPlaceholder) {
+                rect.setAttribute('fill', 'none');
+                rect.setAttribute('fill-opacity', '0');
+                rect.setAttribute('stroke', '#667eea');
                 rect.setAttribute('stroke-width', '2');
+                rect.setAttribute('stroke-dasharray', '5,5');
+                rect.setAttribute('opacity', '0.6');
+            } else {
+                rect.setAttribute('fill', '#667eea');
+                rect.setAttribute('fill-opacity', '0.9');
+                // 根据选中状态设置边框样式
+                if (selectedNodeId === node.id) {
+                    rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                    rect.setAttribute('stroke-width', '3');
+                } else {
+                    rect.setAttribute('stroke', '#fff');
+                    rect.setAttribute('stroke-width', '2');
+                }
             }
             
             rect.setAttribute('cursor', 'pointer');
@@ -541,8 +585,17 @@ function drawGraph(data) {
                     appliedFontSize: node.fontSize || '12'
                 });
             }
-            text.setAttribute('fill', 'white');
-            text.setAttribute('font-weight', '500');
+            
+            // 🔴 待填入节点的文字样式
+            if (isPlaceholder) {
+                text.setAttribute('fill', '#667eea');
+                text.setAttribute('font-weight', '400');
+                text.setAttribute('opacity', '0.8');
+            } else {
+                text.setAttribute('fill', 'white');
+                text.setAttribute('font-weight', '500');
+            }
+            
             text.setAttribute('pointer-events', 'none'); // 防止文字阻挡点击
             text.textContent = nodeLabel;
 
@@ -916,8 +969,15 @@ function resolveLinkLabelOverlaps() {
 
 // updateConnectedLinks
 function updateConnectedLinks(nodeId) {
-        const svg = document.querySelector('.concept-graph');
-        if (!svg) return;
+        // 🔴 支持支架模式：查找支架概念图的SVG或普通概念图的SVG
+        let svg = document.querySelector('.scaffold-concept-graph');
+        if (!svg) {
+            svg = document.querySelector('.concept-graph');
+        }
+        if (!svg) {
+            console.warn('找不到概念图SVG元素，无法更新连线');
+            return;
+        }
 
         // 找到所有与该节点相关的连线
         const relatedLinks = currentGraphData.links.filter(link => 
@@ -1130,8 +1190,15 @@ function updateAggregatedLinkPosition(aggregateGroup, group, movedNodeId) {
 
 // redrawSingleLink
 function redrawSingleLink(link) {
-        const svg = document.querySelector('.concept-graph');
-        if (!svg) return;
+        // 🔴 支持支架模式：查找支架概念图的SVG或普通概念图的SVG
+        let svg = document.querySelector('.scaffold-concept-graph');
+        if (!svg) {
+            svg = document.querySelector('.concept-graph');
+        }
+        if (!svg) {
+            console.warn('找不到概念图SVG元素，无法重绘连线');
+            return;
+        }
 
         const linkId = link.id || `link-${link.source}-${link.target}`;
         
@@ -1336,8 +1403,38 @@ function redrawSingleLink(link) {
 
 // updateLinkPosition
 function updateLinkPosition(linkGroup, link) {
-        const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
-        const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
+        // 🔴 支持支架模式：连线可能连接到占位符（被移除的节点）
+        let sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
+        let targetNode = currentGraphData.nodes.find(n => n.id === link.target);
+        
+        // 如果源节点或目标节点不存在，检查是否是占位符
+        if (!sourceNode && link.sourceRemoved && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
+            if (placeholder) {
+                // 创建临时节点对象用于绘制连线
+                sourceNode = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50
+                };
+            }
+        }
+        
+        if (!targetNode && link.targetRemoved && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+            if (placeholder) {
+                // 创建临时节点对象用于绘制连线
+                targetNode = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50
+                };
+            }
+        }
         
         if (!sourceNode || !targetNode) return;
 

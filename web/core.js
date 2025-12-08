@@ -473,11 +473,27 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         
         // 步骤1：生成介绍文本（用于提取三元组）
         console.log('=== 步骤1：生成介绍文本 ===');
+        
+        // 清空并准备文本内容展示区域
+        const textDisplayArea = window.aiIntroText;
+        if (textDisplayArea) {
+            textDisplayArea.innerHTML = '<div class="streaming-text" style="padding: 10px; line-height: 1.8; color: #333; font-size: 14px;"></div>';
+        }
+        
+        const streamingDiv = textDisplayArea ? textDisplayArea.querySelector('.streaming-text') : null;
         let introText = '';
+        
+        console.log('准备开始流式生成介绍文本，显示区域:', textDisplayArea);
+        
+        // 调用流式生成介绍文本
         const introResult = await window.llmManager.generateIntroduction(
             focusQuestion,
             (chunk) => {
+                // 实时显示生成的文本
                 introText += chunk;
+                if (streamingDiv) {
+                    streamingDiv.textContent = introText;
+                }
             }
         );
         
@@ -488,19 +504,9 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         introText = introResult.text || introText;
         console.log('介绍文本生成完成，长度:', introText.length);
         
-        // 显示生成的介绍文本到文本内容展示区域
-        if (window.aiIntroText) {
-            const displayText = introText.length > 2000 
-                ? introText.substring(0, 2000) + '...' 
-                : introText;
-            window.aiIntroText.innerHTML = `
-                <div style="padding: 15px;">
-                    <h4 style="color: #667eea; margin-bottom: 15px;">📝 AI生成的介绍文本</h4>
-                    <div style="line-height: 1.8; color: #333; font-size: 14px;">
-                        <div style="white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 15px; border-radius: 8px; max-height: 500px; overflow-y: auto;">${displayText}</div>
-                    </div>
-                </div>
-            `;
+        // 最终更新显示（确保显示完整文本）
+        if (streamingDiv) {
+            streamingDiv.textContent = introText;
         }
         
         // 步骤2：提取三元组
@@ -528,12 +534,36 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         const fullConceptData = window.convertTriplesToConceptData(triples);
         console.log('概念图数据转换完成:', fullConceptData);
         
-        // 保存完整的概念图数据（作为专家图）
-        window.expertConceptMapData = JSON.parse(JSON.stringify(fullConceptData));
+        // 先对完整概念图应用布局算法，获取节点的实际位置
+        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        let layoutAppliedFullData = fullConceptData;
         
-        // 步骤4：移除部分节点到待选概念区
+        try {
+            if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+                console.log('完整概念图：应用Sugiyama布局');
+                layoutAppliedFullData = window.applySugiyamaLayout(fullConceptData);
+            } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
+                console.log('完整概念图：应用力导向布局');
+                layoutAppliedFullData = window.applyForceDirectedLayout(fullConceptData, {
+                    width: 2400,
+                    height: 1200,
+                    iterations: 300,
+                    coolingFactor: 0.95,
+                    linkDistance: 100,
+                    nodeCharge: -300,
+                    nodeSpacing: 60
+                });
+            }
+        } catch (error) {
+            console.error('完整概念图布局算法应用失败:', error);
+        }
+        
+        // 保存完整的概念图数据（作为专家图，使用布局后的位置）
+        window.expertConceptMapData = JSON.parse(JSON.stringify(layoutAppliedFullData));
+        
+        // 步骤4：移除部分节点到待选概念区（使用布局后的数据）
         console.log('=== 步骤4：移除部分节点到待选概念区 ===');
-        const { incompleteGraph, candidateNodes } = removeNodesForScaffold(fullConceptData);
+        const { incompleteGraph, candidateNodes, removedNodePlaceholders } = removeNodesForScaffold(layoutAppliedFullData);
         
         // 保存待完成的概念图数据
         window.currentGraphData = incompleteGraph;
@@ -541,12 +571,14 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         // 保存待选节点
         window.scaffoldCandidateNodes = candidateNodes;
         
+        // 保存被移除节点的占位符信息
+        window.scaffoldPlaceholders = removedNodePlaceholders;
+        
         // 步骤5：渲染待完成的概念图（右侧）
         console.log('=== 步骤5：渲染待完成的概念图 ===');
         setupScaffoldLayout();
         
-        // 应用布局算法到待完成的概念图
-        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        // 应用布局算法到待完成的概念图（使用之前已声明的selectedLayout）
         let layoutAppliedGraph = incompleteGraph;
         
         try {
@@ -569,6 +601,9 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         
         displayIncompleteConceptMap(layoutAppliedGraph);
         displayCandidateNodes(candidateNodes);
+        
+        // 注意：占位符会在displayIncompleteConceptMap内部的drawGraph之后自动绘制
+        // 这里不需要再次调用，因为drawGraph会清空SVG
         
         // 更新流程状态
         if (window.processText) {
@@ -664,36 +699,72 @@ function removeNodesForScaffold(fullGraphData) {
         }
     }
     
-    // 创建待完成的概念图（移除选中的节点及其相关连线）
-    const incompleteNodes = nodes.filter(node => !nodeIdsToRemove.has(node.id));
-    // 只保留两端节点都存在的连接
-    const incompleteLinks = links.filter(link => {
-        const sourceExists = !nodeIdsToRemove.has(link.source);
-        const targetExists = !nodeIdsToRemove.has(link.target);
-        return sourceExists && targetExists;
+    // 🔴 不移除节点，而是保留所有节点，但标记待填入的节点
+    // 所有节点都保留，保持原有结构
+    const incompleteNodes = nodes.map(node => {
+        if (nodeIdsToRemove.has(node.id)) {
+            // 标记为待填入状态
+            return {
+                ...node,
+                isPlaceholder: true, // 标记为占位符节点
+                placeholderLabel: node.label // 保存原始标签
+            };
+        }
+        return node;
     });
+    
+    // 保留所有连线，不需要标记sourceRemoved和targetRemoved
+    const incompleteLinks = links.map(link => ({ ...link }));
     
     const incompleteGraph = {
         nodes: incompleteNodes,
         links: incompleteLinks
     };
     
-    console.log(`待完成概念图: ${incompleteNodes.length} 个节点, ${incompleteLinks.length} 条连接`);
+    // 保存待填入节点的信息（用于显示虚线框）
+    const removedNodePlaceholders = nodesToRemove.map(node => {
+        // 从完整概念图中获取节点的位置和尺寸信息（布局后的位置）
+        const fullNode = fullGraphData.nodes.find(n => n.id === node.id);
+        if (!fullNode) {
+            console.warn('在完整概念图中找不到节点:', node.id);
+        }
+        
+        // 计算节点尺寸（如果不存在则使用默认值）
+        const nodeDimensions = window.calculateNodeDimensions ? 
+            window.calculateNodeDimensions(fullNode?.label || node.label || '', 70, 35, 14) : 
+            { width: 100, height: 50 };
+        
+        return {
+            id: node.id,
+            x: fullNode?.x || 0,
+            y: fullNode?.y || 0,
+            width: fullNode?.width || nodeDimensions.width,
+            height: fullNode?.height || nodeDimensions.height,
+            label: node.label || fullNode?.label || ''
+        };
+    });
     
-    // 待选节点（移除的节点）
+    console.log(`待完成概念图: ${incompleteNodes.length} 个节点, ${incompleteLinks.length} 条连接`);
+    console.log(`创建了 ${removedNodePlaceholders.length} 个虚线框占位符`);
+    
+    // 待选节点（移除的节点），保留位置信息
     const candidateNodes = nodesToRemove.map(node => ({
         id: node.id,
         label: node.label,
         layer: node.layer,
         type: node.type,
         description: node.description,
-        importance: node.importance
+        importance: node.importance,
+        x: node.x, // 保留原始位置
+        y: node.y,
+        width: node.width,
+        height: node.height
     }));
     
     console.log(`移除了 ${candidateNodes.length} 个节点到待选概念区`);
     console.log('待选节点:', candidateNodes.map(n => n.label));
     
-    return { incompleteGraph, candidateNodes };
+    return { incompleteGraph, candidateNodes, removedNodePlaceholders };
 }
 
 /**
@@ -829,6 +900,9 @@ function displayIncompleteConceptMap(graphData) {
         
         // 恢复原始类名（保留scaffold-concept-graph）
         svg.className.baseVal = originalClass;
+        
+        // 🔴 不再需要单独绘制占位符虚线框，因为节点本身已经标记为待填入状态
+        // 占位符已经作为节点的一部分在drawGraph中绘制了
     } else {
         console.error('drawGraph函数不存在');
     }
@@ -1023,22 +1097,37 @@ function addCandidateNodeToGraphAtPosition(node, x, y) {
         window.currentGraphData = { nodes: [], links: [] };
     }
     
-    // 检查节点是否已存在
-    const exists = window.currentGraphData.nodes.some(n => n.id === node.id);
-    if (exists) {
-        showMessage('该概念已添加到概念图中', 'warning');
-        return;
+    // 🔴 检查节点是否已存在（包括待填入状态的节点）
+    const existingNodeIndex = window.currentGraphData.nodes.findIndex(n => n.id === node.id);
+    if (existingNodeIndex !== -1) {
+        // 如果节点存在且是待填入状态，则将其转换为正常节点
+        const existingNode = window.currentGraphData.nodes[existingNodeIndex];
+        if (existingNode.isPlaceholder) {
+            // 将待填入节点转换为正常节点
+            window.currentGraphData.nodes[existingNodeIndex] = {
+                ...existingNode,
+                isPlaceholder: false,
+                label: node.label || existingNode.placeholderLabel || existingNode.label,
+                x: x || existingNode.x,
+                y: y || existingNode.y
+            };
+        } else {
+            showMessage('该概念已添加到概念图中', 'warning');
+            return;
+        }
+    } else {
+        // 创建节点副本并设置位置
+        // 如果节点有原始位置信息，优先使用；否则使用拖放位置
+        const newNode = {
+            ...node,
+            isPlaceholder: false, // 确保不是待填入状态
+            x: node.x || x,
+            y: node.y || y
+        };
+        
+        // 添加节点
+        window.currentGraphData.nodes.push(newNode);
     }
-    
-    // 创建节点副本并设置位置
-    const newNode = {
-        ...node,
-        x: x,
-        y: y
-    };
-    
-    // 添加节点
-    window.currentGraphData.nodes.push(newNode);
     
     // 恢复该节点在专家图中的连接关系
     if (window.expertConceptMapData) {
@@ -1066,15 +1155,32 @@ function addCandidateNodeToGraph(node) {
         window.currentGraphData = { nodes: [], links: [] };
     }
     
-    // 检查节点是否已存在
-    const exists = window.currentGraphData.nodes.some(n => n.id === node.id);
-    if (exists) {
-        showMessage('该概念已添加到概念图中', 'warning');
-        return;
+    // 🔴 检查节点是否已存在（包括待填入状态的节点）
+    const existingNodeIndex = window.currentGraphData.nodes.findIndex(n => n.id === node.id);
+    if (existingNodeIndex !== -1) {
+        // 如果节点存在且是待填入状态，则将其转换为正常节点
+        const existingNode = window.currentGraphData.nodes[existingNodeIndex];
+        if (existingNode.isPlaceholder) {
+            // 将待填入节点转换为正常节点
+            window.currentGraphData.nodes[existingNodeIndex] = {
+                ...existingNode,
+                isPlaceholder: false,
+                label: node.label || existingNode.placeholderLabel || existingNode.label
+            };
+        } else {
+            showMessage('该概念已添加到概念图中', 'warning');
+            return;
+        }
+    } else {
+        // 添加节点（使用原始位置，如果没有则让布局算法自动分配）
+        const newNode = {
+            ...node,
+            isPlaceholder: false, // 确保不是待填入状态
+            x: node.x || undefined,
+            y: node.y || undefined
+        };
+        window.currentGraphData.nodes.push(newNode);
     }
-    
-    // 添加节点（不设置位置，让布局算法自动分配）
-    window.currentGraphData.nodes.push(node);
     
     // 恢复该节点在专家图中的连接关系
     if (window.expertConceptMapData) {
@@ -1162,6 +1268,84 @@ function applyLayoutAndRedraw() {
     // 重新渲染概念图
     displayIncompleteConceptMap(layoutAppliedGraph);
     window.currentGraphData = layoutAppliedGraph;
+    
+    // 🔴 不再需要单独绘制占位符虚线框，因为节点本身已经标记为待填入状态
+    // 占位符已经作为节点的一部分在drawGraph中绘制了
+}
+
+/**
+ * 绘制虚线框占位符（用于标记被移除节点的位置）
+ */
+function drawPlaceholderBoxes(placeholders) {
+    const svg = document.querySelector('.scaffold-concept-graph');
+    if (!svg) {
+        console.warn('找不到.scaffold-concept-graph SVG元素，无法绘制占位符');
+        return;
+    }
+    
+    console.log('开始绘制占位符，数量:', placeholders.length);
+    
+    // 移除旧的占位符
+    const oldPlaceholders = svg.querySelectorAll('.scaffold-placeholder');
+    oldPlaceholders.forEach(ph => ph.remove());
+    
+    if (!placeholders || placeholders.length === 0) {
+        console.log('没有占位符需要绘制');
+        return;
+    }
+    
+    placeholders.forEach(placeholder => {
+        // 检查该占位符对应的节点是否已添加
+        const nodeExists = window.currentGraphData?.nodes.some(n => n.id === placeholder.id);
+        if (nodeExists) {
+            console.log('节点已添加，跳过占位符:', placeholder.id);
+            return; // 节点已添加，不绘制占位符
+        }
+        
+        // 创建占位符组
+        const placeholderGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        placeholderGroup.setAttribute('class', 'scaffold-placeholder');
+        placeholderGroup.setAttribute('data-placeholder-id', placeholder.id);
+        
+        // 计算节点尺寸
+        const nodeWidth = placeholder.width || 100;
+        const nodeHeight = placeholder.height || 50;
+        const x = placeholder.x || 0;
+        const y = placeholder.y || 0;
+        
+        console.log('绘制占位符:', placeholder.id, '位置:', x, y, '尺寸:', nodeWidth, nodeHeight);
+        
+        // 绘制虚线框
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - nodeWidth / 2);
+        rect.setAttribute('y', y - nodeHeight / 2);
+        rect.setAttribute('width', nodeWidth);
+        rect.setAttribute('height', nodeHeight);
+        rect.setAttribute('fill', 'none');
+        rect.setAttribute('stroke', '#667eea');
+        rect.setAttribute('stroke-width', '2');
+        rect.setAttribute('stroke-dasharray', '5,5');
+        rect.setAttribute('opacity', '0.6');
+        rect.setAttribute('rx', '8');
+        rect.setAttribute('ry', '8');
+        
+        // 添加提示文字
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', x);
+        text.setAttribute('y', y);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('font-size', '12');
+        text.setAttribute('fill', '#667eea');
+        text.setAttribute('opacity', '0.8');
+        text.textContent = '待填入';
+        
+        placeholderGroup.appendChild(rect);
+        placeholderGroup.appendChild(text);
+        svg.appendChild(placeholderGroup);
+    });
+    
+    console.log('占位符绘制完成');
 }
 
 /**
