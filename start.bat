@@ -84,38 +84,81 @@ if not exist "web\index.html" (
 
 echo SUCCESS: Project files check passed
 
-REM Smart port detection with timeout
+REM Clean up old Flask processes on ports 5000-5010
 echo.
-echo [5/5] Finding available port...
+echo [5/6] Cleaning up old Flask processes...
+set FOUND_PROCESS=0
+for /L %%P in (5000,1,5010) do (
+    REM Check if port is in LISTENING state
+    netstat -ano | findstr "%%P.*LISTENING" >nul 2>&1
+    if not errorlevel 1 (
+        REM Get PID of process using this port
+        for /f "tokens=5" %%A in ('netstat -ano ^| findstr "%%P.*LISTENING"') do (
+            REM Check if it's a Python process
+            tasklist /FI "PID eq %%A" 2>nul | findstr /I "python.exe" >nul 2>&1
+            if not errorlevel 1 (
+                echo Found Flask process on port %%P ^(PID: %%A^), closing...
+                taskkill /F /PID %%A >nul 2>&1
+                if not errorlevel 1 (
+                    set FOUND_PROCESS=1
+                    ping 127.0.0.1 -n 2 >nul
+                )
+            )
+        )
+    )
+)
+if "%FOUND_PROCESS%"=="1" (
+    echo Cleaned up old Flask process^(es^), waiting for ports to release...
+    ping 127.0.0.1 -n 3 >nul
+) else (
+    echo No old Flask processes found
+)
+
+REM Smart port detection with improved method
+echo.
+echo [6/6] Finding available port...
 set PORT=5000
-set MAX_ATTEMPTS=20
+set MAX_ATTEMPTS=22
 set ATTEMPT=0
+set START_PORT=5000
+set END_PORT=5010
 
 :port_loop
 set /a ATTEMPT+=1
 if %ATTEMPT% gtr %MAX_ATTEMPTS% (
-    echo ERROR: Cannot find available port after %MAX_ATTEMPTS% attempts
-    echo Please close some programs or restart your computer
+    echo.
+    echo ERROR: Cannot find available port after checking ports %START_PORT%-%END_PORT%
+    echo.
+    echo Possible solutions:
+    echo 1. Close other programs using ports %START_PORT%-%END_PORT%
+    echo 2. Restart your computer to release all ports
+    echo 3. Manually kill processes: taskkill /F /IM python.exe
+    echo.
     pause
     exit /b 1
 )
 
 echo Checking port %PORT% (attempt %ATTEMPT%/%MAX_ATTEMPTS%)...
 
-REM Use a more reliable port check method
-netstat -an | find ":%PORT%" >nul 2>&1
+REM Use more accurate port check: only check LISTENING state (active server)
+REM This is more reliable than checking all states
+netstat -ano | findstr ":%PORT%.*LISTENING" >nul 2>&1
 if errorlevel 1 (
+    REM Port is not in LISTENING state, it's available
     echo SUCCESS: Port %PORT% is available
     goto port_found
-) else (
-    echo Port %PORT% is occupied, trying next port...
-    set /a PORT+=1
-    if %PORT% gtr 5010 (
-        echo Resetting to port 5000 and continuing search...
-        set PORT=5000
-    )
-    goto port_loop
 )
+
+echo Port %PORT% is occupied, trying next port...
+set /a PORT+=1
+
+REM Reset to START_PORT if we exceed END_PORT (one full cycle)
+if %PORT% GTR %END_PORT% (
+    echo Completed one full scan cycle, restarting from port %START_PORT%...
+    set PORT=%START_PORT%
+)
+
+goto port_loop
 
 :port_found
 echo.

@@ -658,7 +658,8 @@ function hasLinkNodeOverlap(link, nodes) {
     const source = nodes.find(n => n.id === link.source);
     const target = nodes.find(n => n.id === link.target);
     
-    if (!source || !target) return false;
+    // 🔴 修复：返回对象而不是布尔值，保持返回值格式一致
+    if (!source || !target) return { hasOverlap: false };
     
     // 计算连接线的起点和终点（节点边缘）
     const sourceDimensions = calculateNodeDimensions(source.label || '', 70, 35, 14);
@@ -777,8 +778,39 @@ function pointInRect(px, py, rectX, rectY, rectWidth, rectHeight) {
  * @returns {Object} 路径数据
  */
 function calculatePolylinePath(link, nodes, allLinks = null) {
-    const source = nodes.find(n => n.id === link.source);
-    const target = nodes.find(n => n.id === link.target);
+    let source = nodes.find(n => n.id === link.source);
+    let target = nodes.find(n => n.id === link.target);
+    
+    // 🔴 支持支架模式：如果找不到节点，尝试从占位符中获取
+    if (!source && window.scaffoldPlaceholders) {
+        const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
+        if (placeholder) {
+            source = {
+                id: placeholder.id,
+                x: placeholder.x || 0,
+                y: placeholder.y || 0,
+                width: placeholder.width || 100,
+                height: placeholder.height || 50,
+                label: '待填入',
+                layer: placeholder.layer
+            };
+        }
+    }
+    
+    if (!target && window.scaffoldPlaceholders) {
+        const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+        if (placeholder) {
+            target = {
+                id: placeholder.id,
+                x: placeholder.x || 0,
+                y: placeholder.y || 0,
+                width: placeholder.width || 100,
+                height: placeholder.height || 50,
+                label: '待填入',
+                layer: placeholder.layer
+            };
+        }
+    }
     
     if (!source || !target) return null;
     

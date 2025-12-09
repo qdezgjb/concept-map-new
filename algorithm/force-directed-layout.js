@@ -48,22 +48,24 @@ function applyForceDirectedLayout(graphData, options = {}) {
     for (let iteration = 0; iteration < maxIterations; iteration++) {
         const currentTemp = temperature * Math.pow(coolingFactor, iteration);
         
-        // 重置力
+        // 重置力（固定位置的节点不参与力的计算）
         nodes.forEach(node => {
-            node.fx = 0;
-            node.fy = 0;
+            if (!node.fixedPosition) {
+                node.fx = 0;
+                node.fy = 0;
+            }
         });
         
-        // 应用斥力（节点间排斥）
+        // 应用斥力（节点间排斥，固定位置的节点不参与）
         applyRepulsiveForces(nodes, nodeCharge, nodeSpacing);
         
-        // 应用引力（连线连接）
+        // 应用引力（连线连接，固定位置的节点不参与）
         applyAttractiveForces(nodes, links, linkDistance);
         
-        // 应用边界约束
+        // 应用边界约束（固定位置的节点不参与）
         applyBoundaryConstraints(nodes, width, height);
         
-        // 更新节点位置
+        // 更新节点位置（固定位置的节点不更新）
         updateNodePositions(nodes, currentTemp);
         
         // 检查收敛性
@@ -113,6 +115,11 @@ function applyRepulsiveForces(nodes, charge, minDistance) {
             const nodeA = nodes[i];
             const nodeB = nodes[j];
             
+            // 🔴 如果两个节点都是固定位置，跳过力的计算
+            if (nodeA.fixedPosition && nodeB.fixedPosition) {
+                continue;
+            }
+            
             const dx = nodeB.x - nodeA.x;
             const dy = nodeB.y - nodeA.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -127,10 +134,15 @@ function applyRepulsiveForces(nodes, charge, minDistance) {
                 const fy = (dy / safeDistance) * force;
                 
                 // 应用力（牛顿第三定律）
-                nodeA.fx = (nodeA.fx || 0) - fx;
-                nodeA.fy = (nodeA.fy || 0) - fy;
-                nodeB.fx = (nodeB.fx || 0) + fx;
-                nodeB.fy = (nodeB.fy || 0) + fy;
+                // 🔴 固定位置的节点不接收力，但可以施加力给其他节点
+                if (!nodeA.fixedPosition) {
+                    nodeA.fx = (nodeA.fx || 0) - fx;
+                    nodeA.fy = (nodeA.fy || 0) - fy;
+                }
+                if (!nodeB.fixedPosition) {
+                    nodeB.fx = (nodeB.fx || 0) + fx;
+                    nodeB.fy = (nodeB.fy || 0) + fy;
+                }
             }
         }
     }
@@ -160,11 +172,15 @@ function applyAttractiveForces(nodes, links, idealDistance) {
                 const fx = (dx / distance) * force;
                 const fy = (dy / distance) * force;
                 
-                // 应用力
-                source.fx = (source.fx || 0) + fx;
-                source.fy = (source.fy || 0) + fy;
-                target.fx = (target.fx || 0) - fx;
-                target.fy = (target.fy || 0) - fy;
+                // 应用力（固定位置的节点不接收力，但可以施加力给其他节点）
+                if (!source.fixedPosition) {
+                    source.fx = (source.fx || 0) + fx;
+                    source.fy = (source.fy || 0) + fy;
+                }
+                if (!target.fixedPosition) {
+                    target.fx = (target.fx || 0) - fx;
+                    target.fy = (target.fy || 0) - fy;
+                }
             }
         }
     });
@@ -180,6 +196,11 @@ function applyBoundaryConstraints(nodes, width, height) {
     const margin = 50;
     
     nodes.forEach(node => {
+        // 🔴 如果节点有固定位置，不应用边界约束
+        if (node.fixedPosition) {
+            return;
+        }
+        
         // 考虑节点尺寸（如果有的话）
         const nodeWidth = node.width || 70;
         const nodeHeight = node.height || 35;
@@ -214,6 +235,15 @@ function updateNodePositions(nodes, temperature) {
     const damping = 0.85; // 阻尼系数
     
     nodes.forEach(node => {
+        // 🔴 如果节点有固定位置，保持其位置不变
+        if (node.fixedPosition && node.savedX !== undefined && node.savedY !== undefined) {
+            node.x = node.savedX;
+            node.y = node.savedY;
+            node.vx = 0;
+            node.vy = 0;
+            return;
+        }
+        
         // 更新速度（基于力）
         node.vx = (node.vx || 0) * damping + (node.fx || 0) * temperature;
         node.vy = (node.vy || 0) * damping + (node.fy || 0) * temperature;
@@ -242,6 +272,18 @@ function finalizeNodePositions(nodes, width, height) {
     const margin = 50;
     
     nodes.forEach(node => {
+        // 🔴 如果节点有固定位置，保持其位置不变
+        if (node.fixedPosition && node.savedX !== undefined && node.savedY !== undefined) {
+            node.x = node.savedX;
+            node.y = node.savedY;
+            // 清理临时属性
+            delete node.vx;
+            delete node.vy;
+            delete node.fx;
+            delete node.fy;
+            return;
+        }
+        
         // 确保节点在可视区域内
         const nodeWidth = node.width || 70;
         const nodeHeight = node.height || 35;

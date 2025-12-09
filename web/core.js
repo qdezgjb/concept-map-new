@@ -9,6 +9,10 @@
 window.currentGraphData = null;
 window.isGenerating = false;
 
+// 🔴 支架模式撤销功能相关变量
+window.scaffoldUndoStack = []; // 撤销栈
+window.scaffoldMaxUndoSteps = 20; // 最大撤销步数
+
 // 节点选中和拖动相关变量
 window.selectedNodeId = null;
 window.selectedLinkId = null;
@@ -440,6 +444,9 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
     isGenerating = true;
     
     try {
+        // 设置焦点问题（用于显示）
+        window.focusQuestion = `焦点问题：${focusQuestion}`;
+        
         // 清除之前的概念图内容
         clearPreviousConceptMap();
         
@@ -574,12 +581,24 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         // 保存被移除节点的占位符信息
         window.scaffoldPlaceholders = removedNodePlaceholders;
         
+        // 🔴 关键：保存原始的待填入节点ID列表（用于后续恢复）
+        // 这个列表在整个支架模式期间保持不变，用于确保虚线框始终正确显示
+        window.originalPlaceholderNodeIds = new Set(candidateNodes.map(n => n.id));
+        console.log(`保存原始待填入节点ID列表，共 ${window.originalPlaceholderNodeIds.size} 个:`, Array.from(window.originalPlaceholderNodeIds));
+        
         // 步骤5：渲染待完成的概念图（右侧）
         console.log('=== 步骤5：渲染待完成的概念图 ===');
         setupScaffoldLayout();
         
         // 应用布局算法到待完成的概念图（使用之前已声明的selectedLayout）
         let layoutAppliedGraph = incompleteGraph;
+        
+        // 保存待填入节点的ID，以便布局后恢复isPlaceholder属性
+        const placeholderNodeIds = new Set(
+            incompleteGraph.nodes
+                .filter(node => node.isPlaceholder === true)
+                .map(node => node.id)
+        );
         
         try {
             if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
@@ -595,12 +614,73 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
                     nodeSpacing: 60
                 });
             }
+            
+            // 恢复isPlaceholder属性（布局算法可能会丢失）
+            if (layoutAppliedGraph.nodes) {
+                let restoredCount = 0;
+                layoutAppliedGraph.nodes.forEach(node => {
+                    if (placeholderNodeIds.has(node.id)) {
+                        // 确保 isPlaceholder 属性被设置
+                        if (node.isPlaceholder !== true) {
+                            node.isPlaceholder = true;
+                            restoredCount++;
+                            console.log(`恢复了节点 ${node.id} 的 isPlaceholder 属性，标签: ${node.label || node.placeholderLabel || '无标签'}`);
+                        } else {
+                            console.log(`节点 ${node.id} 的 isPlaceholder 属性已存在，标签: ${node.label || node.placeholderLabel || '无标签'}`);
+                        }
+                    }
+                });
+                console.log(`总共恢复了 ${restoredCount} 个节点的 isPlaceholder 属性`);
+                
+                // 验证：检查最终数据中待填入节点的数量
+                const finalPlaceholderCount = layoutAppliedGraph.nodes.filter(n => n.isPlaceholder === true).length;
+                console.log(`最终数据中有 ${finalPlaceholderCount} 个待填入节点，期望 ${placeholderNodeIds.size} 个`);
+                
+                if (finalPlaceholderCount !== placeholderNodeIds.size) {
+                    console.warn(`警告：待填入节点数量不匹配！期望 ${placeholderNodeIds.size} 个，实际 ${finalPlaceholderCount} 个`);
+                    // 列出所有节点的 isPlaceholder 状态
+                    console.log('所有节点的 isPlaceholder 状态:', 
+                        layoutAppliedGraph.nodes.map(n => ({ 
+                            id: n.id, 
+                            label: n.label || n.placeholderLabel || '无标签',
+                            isPlaceholder: n.isPlaceholder,
+                            shouldBePlaceholder: placeholderNodeIds.has(n.id)
+                        }))
+                    );
+                }
+                
+                // 最终强制设置：确保所有应该待填入的节点都有 isPlaceholder 属性
+                layoutAppliedGraph.nodes.forEach(node => {
+                    if (placeholderNodeIds.has(node.id) && node.isPlaceholder !== true) {
+                        console.warn(`强制设置节点 ${node.id} 的 isPlaceholder 属性为 true`);
+                        node.isPlaceholder = true;
+                    }
+                });
+            }
         } catch (error) {
             console.error('布局算法应用失败:', error);
         }
         
+        // 最终验证：确保所有待填入节点都有 isPlaceholder 属性
+        const finalCheck = layoutAppliedGraph.nodes.filter(n => n.isPlaceholder === true).length;
+        console.log(`最终验证：layoutAppliedGraph 中有 ${finalCheck} 个待填入节点`);
+        if (finalCheck === 0 && placeholderNodeIds.size > 0) {
+            console.error('错误：布局算法后所有待填入节点的 isPlaceholder 属性都丢失了！');
+            // 强制恢复
+            layoutAppliedGraph.nodes.forEach(node => {
+                if (placeholderNodeIds.has(node.id)) {
+                    node.isPlaceholder = true;
+                    console.log(`强制恢复节点 ${node.id} 的 isPlaceholder 属性`);
+                }
+            });
+        }
+        
         displayIncompleteConceptMap(layoutAppliedGraph);
         displayCandidateNodes(candidateNodes);
+        
+        // 🔴 初始化支架模式的键盘快捷键（Ctrl+Z 撤销）
+        clearScaffoldUndoStack(); // 清空之前的撤销栈
+        initScaffoldKeyboardShortcuts();
         
         // 注意：占位符会在displayIncompleteConceptMap内部的drawGraph之后自动绘制
         // 这里不需要再次调用，因为drawGraph会清空SVG
@@ -704,14 +784,23 @@ function removeNodesForScaffold(fullGraphData) {
     const incompleteNodes = nodes.map(node => {
         if (nodeIdsToRemove.has(node.id)) {
             // 标记为待填入状态
-            return {
+            const placeholderNode = {
                 ...node,
                 isPlaceholder: true, // 标记为占位符节点
                 placeholderLabel: node.label // 保存原始标签
             };
+            console.log(`标记节点 ${node.id} 为待填入状态，原始标签: ${node.label}`);
+            return placeholderNode;
         }
         return node;
     });
+    
+    // 验证：检查标记的待填入节点数量
+    const markedPlaceholderCount = incompleteNodes.filter(n => n.isPlaceholder === true).length;
+    console.log(`removeNodesForScaffold: 标记了 ${markedPlaceholderCount} 个待填入节点，期望 ${nodeIdsToRemove.size} 个`);
+    if (markedPlaceholderCount !== nodeIdsToRemove.size) {
+        console.warn(`警告：待填入节点标记数量不匹配！期望 ${nodeIdsToRemove.size} 个，实际 ${markedPlaceholderCount} 个`);
+    }
     
     // 保留所有连线，不需要标记sourceRemoved和targetRemoved
     const incompleteLinks = links.map(link => ({ ...link }));
@@ -889,22 +978,88 @@ function displayIncompleteConceptMap(graphData) {
     // 设置currentGraphData
     window.currentGraphData = graphData;
     
-    // 使用drawGraph函数直接渲染到指定的SVG
-    if (window.drawGraph) {
-        // 临时将SVG添加到concept-graph类，以便drawGraph能找到它
-        const originalClass = svg.className.baseVal;
-        svg.classList.add('concept-graph');
-        
-        // 调用drawGraph渲染
-        window.drawGraph(graphData);
-        
-        // 恢复原始类名（保留scaffold-concept-graph）
-        svg.className.baseVal = originalClass;
-        
-        // 🔴 不再需要单独绘制占位符虚线框，因为节点本身已经标记为待填入状态
-        // 占位符已经作为节点的一部分在drawGraph中绘制了
-    } else {
-        console.error('drawGraph函数不存在');
+        // 使用drawGraph函数直接渲染到指定的SVG
+        if (window.drawGraph) {
+            // 检查待填入节点的数量
+            const placeholderCount = graphData.nodes.filter(n => n.isPlaceholder === true).length;
+            console.log(`displayIncompleteConceptMap: 准备渲染 ${graphData.nodes.length} 个节点，其中 ${placeholderCount} 个是待填入节点`);
+            if (placeholderCount > 0) {
+                console.log('待填入节点列表:', graphData.nodes.filter(n => n.isPlaceholder === true).map(n => ({ id: n.id, label: n.label || n.placeholderLabel })));
+            }
+            
+            // 临时将SVG添加到concept-graph类，以便drawGraph能找到它
+            const originalClass = svg.className.baseVal;
+            svg.classList.add('concept-graph');
+            
+            // 调用drawGraph渲染
+            window.drawGraph(graphData);
+            
+            // 恢复原始类名（保留scaffold-concept-graph）
+            svg.className.baseVal = originalClass;
+            
+            // 验证：检查渲染后SVG中是否有待填入节点
+            setTimeout(() => {
+                const renderedPlaceholders = svg.querySelectorAll('[data-node-id]');
+                console.log(`渲染后SVG中有 ${renderedPlaceholders.length} 个节点元素`);
+                
+                // 检查是否有虚线框（stroke-dasharray属性）
+                const dashedRects = svg.querySelectorAll('rect[stroke-dasharray]');
+                console.log(`渲染后SVG中有 ${dashedRects.length} 个虚线框`);
+                
+                if (placeholderCount > 0 && dashedRects.length === 0) {
+                    console.error('错误：应该有待填入节点，但没有渲染虚线框！');
+                    console.log('待填入节点数据:', graphData.nodes.filter(n => n.isPlaceholder === true));
+                }
+            }, 100);
+            
+            // 🔴 不再需要单独绘制占位符虚线框，因为节点本身已经标记为待填入状态
+            // 占位符已经作为节点的一部分在drawGraph中绘制了
+        } else {
+            console.error('drawGraph函数不存在');
+        }
+    
+    // 调整viewBox以居中节点（调用已有逻辑，需要在显示焦点问题之前）
+    if (typeof window.adjustViewBox === 'function' && graphData.nodes) {
+        // 获取SVG容器的实际尺寸
+        const svgRect = svg.getBoundingClientRect();
+        const containerWidth = svgRect.width || 2400;
+        const containerHeight = svgRect.height || 1200;
+        window.adjustViewBox(graphData.nodes, containerWidth, containerHeight);
+    }
+    
+    // 显示焦点问题（调用已有逻辑，在viewBox调整之后）
+    // 确保布局算法已经设置了focusQuestionY和focusQuestionHeight
+    // 如果布局算法没有设置，使用默认值
+    if (window.focusQuestionY === undefined) {
+        window.focusQuestionY = 5;
+        console.log('布局算法未设置focusQuestionY，使用默认值5');
+    }
+    if (window.focusQuestionHeight === undefined) {
+        window.focusQuestionHeight = 60;
+        console.log('布局算法未设置focusQuestionHeight，使用默认值60');
+    }
+    
+    // 使用setTimeout确保SVG已经渲染完成
+    setTimeout(() => {
+        if (typeof window.displayFocusQuestion === 'function' && window.focusQuestion) {
+            console.log('显示焦点问题:', window.focusQuestion);
+            console.log('焦点问题Y坐标:', window.focusQuestionY);
+            console.log('焦点问题高度:', window.focusQuestionHeight);
+            console.log('SVG元素:', svg);
+            console.log('SVG类名:', svg.className);
+            window.displayFocusQuestion();
+        } else {
+            console.warn('无法显示焦点问题:', {
+                hasFunction: typeof window.displayFocusQuestion === 'function',
+                hasFocusQuestion: !!window.focusQuestion,
+                focusQuestion: window.focusQuestion
+            });
+        }
+    }, 200);
+    
+    // 启用画布缩放（鼠标滚轮）
+    if (typeof window.enableCanvasZoom === 'function') {
+        window.enableCanvasZoom();
     }
     
     // 重新设置拖放区域
@@ -914,17 +1069,206 @@ function displayIncompleteConceptMap(graphData) {
 /**
  * 设置概念图为拖放目标区域
  */
+/**
+ * 检测鼠标位置下的待选框节点
+ * @param {MouseEvent} e - 鼠标事件
+ * @param {SVGElement} svg - SVG元素
+ * @returns {Object|null} 找到的待选框节点信息 {nodeElement, nodeData} 或 null
+ */
+function findPlaceholderNodeAtPosition(e, svg) {
+    if (!svg || !window.currentGraphData) return null;
+    
+    // 计算在SVG中的坐标
+    const svgRect = svg.getBoundingClientRect();
+    const viewBox = svg.getAttribute('viewBox') || '0 0 2400 1200';
+    const viewBoxParts = viewBox.split(' ').map(Number);
+    const viewBoxX = viewBoxParts[0];
+    const viewBoxY = viewBoxParts[1];
+    const viewBoxWidth = viewBoxParts[2];
+    const viewBoxHeight = viewBoxParts[3];
+    
+    // 将鼠标坐标转换为SVG坐标
+    const mouseX = e.clientX - svgRect.left;
+    const mouseY = e.clientY - svgRect.top;
+    const svgX = viewBoxX + (mouseX / svgRect.width) * viewBoxWidth;
+    const svgY = viewBoxY + (mouseY / svgRect.height) * viewBoxHeight;
+    
+    // 查找所有待填入节点
+    const placeholderNodes = window.currentGraphData.nodes.filter(n => n.isPlaceholder === true);
+    
+    // 检查鼠标位置是否在某个待选框内
+    for (const nodeData of placeholderNodes) {
+        if (nodeData.x === undefined || nodeData.y === undefined) continue;
+        
+        // 计算节点尺寸
+        const nodeLabel = '待填入';
+        const nodeDimensions = window.calculateNodeDimensions ? 
+            window.calculateNodeDimensions(nodeLabel, 90, 45, 20) : 
+            { width: 90, height: 45 };
+        const nodeWidth = nodeData.width || nodeDimensions.width;
+        const nodeHeight = nodeData.height || nodeDimensions.height;
+        
+        // 计算节点的边界
+        const nodeLeft = nodeData.x - nodeWidth / 2;
+        const nodeRight = nodeData.x + nodeWidth / 2;
+        const nodeTop = nodeData.y - nodeHeight / 2;
+        const nodeBottom = nodeData.y + nodeHeight / 2;
+        
+        // 检查鼠标位置是否在节点内
+        if (svgX >= nodeLeft && svgX <= nodeRight && svgY >= nodeTop && svgY <= nodeBottom) {
+            // 找到对应的SVG元素
+            const nodeElement = svg.querySelector(`[data-node-id="${nodeData.id}"]`);
+            if (nodeElement) {
+                return { nodeElement, nodeData };
+            }
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * 高亮并放大待选框
+ * @param {SVGElement} nodeElement - 节点SVG元素
+ */
+function highlightPlaceholderNode(nodeElement) {
+    if (!nodeElement) return;
+    
+    // 移除之前的高亮
+    clearPlaceholderHighlight();
+    
+    // 获取矩形元素
+    const rect = nodeElement.querySelector('rect');
+    if (!rect) return;
+    
+    // 保存原始属性
+    const originalWidth = parseFloat(rect.getAttribute('width'));
+    const originalHeight = parseFloat(rect.getAttribute('height'));
+    const originalStrokeWidth = parseFloat(rect.getAttribute('stroke-width'));
+    const originalOpacity = parseFloat(rect.getAttribute('opacity'));
+    
+    // 保存到节点元素上，以便后续恢复
+    nodeElement.dataset.originalWidth = originalWidth;
+    nodeElement.dataset.originalHeight = originalHeight;
+    nodeElement.dataset.originalStrokeWidth = originalStrokeWidth;
+    nodeElement.dataset.originalOpacity = originalOpacity;
+    nodeElement.dataset.isHighlighted = 'true';
+    
+    // 放大节点（放大1.3倍）
+    const scale = 1.3;
+    const newWidth = originalWidth * scale;
+    const newHeight = originalHeight * scale;
+    
+    // 更新矩形尺寸和位置（保持中心点不变）
+    rect.setAttribute('width', newWidth);
+    rect.setAttribute('height', newHeight);
+    rect.setAttribute('x', -newWidth / 2);
+    rect.setAttribute('y', -newHeight / 2);
+    
+    // 高亮样式
+    rect.setAttribute('stroke', '#ff6b6b'); // 红色高亮
+    rect.setAttribute('stroke-width', '3');
+    rect.setAttribute('opacity', '1');
+    rect.setAttribute('fill', 'rgba(255, 107, 107, 0.1)'); // 浅红色填充
+    
+    // 更新文字位置和大小
+    const text = nodeElement.querySelector('text');
+    if (text) {
+        text.setAttribute('font-size', parseFloat(text.getAttribute('font-size')) * scale);
+    }
+}
+
+/**
+ * 清除所有待选框的高亮
+ */
+function clearPlaceholderHighlight() {
+    const svg = document.querySelector('.scaffold-concept-graph');
+    if (!svg) return;
+    
+    // 查找所有高亮的待选框
+    const highlightedNodes = svg.querySelectorAll('[data-is-highlighted="true"]');
+    highlightedNodes.forEach(nodeElement => {
+        const rect = nodeElement.querySelector('rect');
+        if (!rect) return;
+        
+        // 恢复原始属性
+        const originalWidth = parseFloat(nodeElement.dataset.originalWidth);
+        const originalHeight = parseFloat(nodeElement.dataset.originalHeight);
+        const originalStrokeWidth = parseFloat(nodeElement.dataset.originalStrokeWidth);
+        const originalOpacity = parseFloat(nodeElement.dataset.originalOpacity);
+        
+        // 恢复尺寸和位置
+        rect.setAttribute('width', originalWidth);
+        rect.setAttribute('height', originalHeight);
+        rect.setAttribute('x', -originalWidth / 2);
+        rect.setAttribute('y', -originalHeight / 2);
+        
+        // 恢复样式
+        rect.setAttribute('stroke', '#667eea');
+        rect.setAttribute('stroke-width', originalStrokeWidth);
+        rect.setAttribute('opacity', originalOpacity);
+        rect.setAttribute('fill', 'none');
+        
+        // 恢复文字大小
+        const text = nodeElement.querySelector('text');
+        if (text) {
+            const originalFontSize = parseFloat(text.getAttribute('font-size')) / 1.3;
+            text.setAttribute('font-size', originalFontSize);
+        }
+        
+        // 清除标记
+        delete nodeElement.dataset.isHighlighted;
+        delete nodeElement.dataset.originalWidth;
+        delete nodeElement.dataset.originalHeight;
+        delete nodeElement.dataset.originalStrokeWidth;
+        delete nodeElement.dataset.originalOpacity;
+    });
+}
+
 function setupGraphDropZone() {
     const graphArea = document.querySelector('.scaffold-graph-area');
     const svg = document.querySelector('.scaffold-concept-graph');
     
     if (!graphArea || !svg) return;
     
+    // 当前高亮的待选框
+    let currentHighlightedPlaceholder = null;
+    
     // 移除之前的事件监听器（通过重新设置）
     graphArea.ondragover = null;
     graphArea.ondrop = null;
     graphArea.ondragenter = null;
     graphArea.ondragleave = null;
+    svg.ondragover = null;
+    
+    // 在SVG上监听拖拽事件（用于检测待选框）
+    svg.ondragover = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 只有在拖拽待选概念时才检测
+        if (!window.draggingNode) return;
+        
+        // 检测鼠标位置下的待选框
+        const placeholder = findPlaceholderNodeAtPosition(e, svg);
+        
+        if (placeholder) {
+            // 找到待选框，高亮并放大
+            if (currentHighlightedPlaceholder !== placeholder.nodeElement) {
+                clearPlaceholderHighlight();
+                highlightPlaceholderNode(placeholder.nodeElement);
+                currentHighlightedPlaceholder = placeholder.nodeElement;
+                e.dataTransfer.dropEffect = 'copy'; // 显示复制效果
+            }
+        } else {
+            // 没有找到待选框，清除高亮
+            if (currentHighlightedPlaceholder) {
+                clearPlaceholderHighlight();
+                currentHighlightedPlaceholder = null;
+            }
+            e.dataTransfer.dropEffect = 'move';
+        }
+    };
     
     // 允许拖放
     graphArea.ondragover = function(e) {
@@ -954,6 +1298,9 @@ function setupGraphDropZone() {
         if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
             graphArea.style.border = '1px solid #e9ecef';
             graphArea.style.background = 'white';
+            // 清除待选框高亮
+            clearPlaceholderHighlight();
+            currentHighlightedPlaceholder = null;
         }
     };
     
@@ -965,13 +1312,17 @@ function setupGraphDropZone() {
         graphArea.style.border = '1px solid #e9ecef';
         graphArea.style.background = 'white';
         
+        // 清除待选框高亮
+        clearPlaceholderHighlight();
+        
         // 获取拖拽的节点ID
         const nodeId = e.dataTransfer.getData('text/plain');
         if (!nodeId || !window.draggingNode) {
+            currentHighlightedPlaceholder = null;
             return;
         }
         
-        // 计算在SVG中的坐标
+        // 计算在SVG中的坐标（无论拖放到哪里，都使用用户拖放的实际位置）
         const svgRect = svg.getBoundingClientRect();
         const viewBox = svg.getAttribute('viewBox') || '0 0 2400 1200';
         const viewBoxParts = viewBox.split(' ').map(Number);
@@ -986,14 +1337,37 @@ function setupGraphDropZone() {
         const svgX = viewBoxX + (mouseX / svgRect.width) * viewBoxWidth;
         const svgY = viewBoxY + (mouseY / svgRect.height) * viewBoxHeight;
         
-        console.log('拖放到位置:', svgX, svgY);
+        // 检测是否拖放到待选框上
+        const placeholder = findPlaceholderNodeAtPosition(e, svg);
         
-        // 添加节点到概念图（使用拖放位置）
-        addCandidateNodeToGraphAtPosition(window.draggingNode, svgX, svgY);
-        
-        // 清除拖拽状态
-        window.draggingNodeId = null;
-        window.draggingNode = null;
+        if (placeholder) {
+            // 拖放到待选框上，填入该待选框，但使用用户拖放的实际位置
+            console.log('拖放到待选框:', placeholder.nodeData.id, '用户拖放位置:', svgX, svgY, '待选框位置:', placeholder.nodeData.x, placeholder.nodeData.y);
+            addCandidateNodeToGraph(placeholder.nodeData.id, window.draggingNode, svgX, svgY);
+            
+            // 清除拖拽状态
+            window.draggingNodeId = null;
+            window.draggingNode = null;
+            currentHighlightedPlaceholder = null;
+        } else {
+            // 拖放到空白区域，不添加到概念图，将概念放回待选区
+            console.log('拖放到空白位置，将概念放回待选区');
+            
+            // 恢复待选节点的样式（如果之前有变化）
+            const candidateList = document.querySelector('.candidate-nodes-list');
+            const nodeItem = candidateList?.querySelector(`[data-node-id="${window.draggingNodeId}"]`);
+            if (nodeItem) {
+                nodeItem.style.opacity = '1';
+                nodeItem.style.cursor = 'grab';
+                nodeItem.style.background = 'white';
+                nodeItem.style.borderColor = '#667eea';
+            }
+            
+            // 清除拖拽状态
+            window.draggingNodeId = null;
+            window.draggingNode = null;
+            currentHighlightedPlaceholder = null;
+        }
     };
 }
 
@@ -1058,6 +1432,12 @@ function displayCandidateNodes(candidateNodes) {
         nodeItem.addEventListener('dragend', function(e) {
             this.style.opacity = '1';
             this.style.cursor = 'grab';
+            
+            // 清除待选框高亮
+            if (typeof clearPlaceholderHighlight === 'function') {
+                clearPlaceholderHighlight();
+            }
+            
             window.draggingNodeId = null;
             window.draggingNode = null;
             
@@ -1090,12 +1470,21 @@ function displayCandidateNodes(candidateNodes) {
 }
 
 /**
- * 将待选节点添加到概念图（使用拖放位置）
+ * 将待选节点添加到概念图（拖放到空白区域时使用）
+ * 注意：这个函数用于拖放到空白区域，不是拖放到虚线框
  */
 function addCandidateNodeToGraphAtPosition(node, x, y) {
     if (!window.currentGraphData) {
         window.currentGraphData = { nodes: [], links: [] };
     }
+    
+    // 🔴 保存操作前的状态（用于撤销）
+    saveScaffoldUndoState('fillNodeAtPosition', {
+        nodeId: node.id,
+        nodeLabel: node.label,
+        x: x,
+        y: y
+    });
     
     // 🔴 检查节点是否已存在（包括待填入状态的节点）
     const existingNodeIndex = window.currentGraphData.nodes.findIndex(n => n.id === node.id);
@@ -1108,6 +1497,8 @@ function addCandidateNodeToGraphAtPosition(node, x, y) {
                 ...existingNode,
                 isPlaceholder: false,
                 label: node.label || existingNode.placeholderLabel || existingNode.label,
+                filledWithNodeId: node.id,
+                filledWithLabel: node.label,
                 x: x || existingNode.x,
                 y: y || existingNode.y
             };
@@ -1121,6 +1512,8 @@ function addCandidateNodeToGraphAtPosition(node, x, y) {
         const newNode = {
             ...node,
             isPlaceholder: false, // 确保不是待填入状态
+            filledWithNodeId: node.id,
+            filledWithLabel: node.label,
             x: node.x || x,
             y: node.y || y
         };
@@ -1129,16 +1522,33 @@ function addCandidateNodeToGraphAtPosition(node, x, y) {
         window.currentGraphData.nodes.push(newNode);
     }
     
-    // 恢复该节点在专家图中的连接关系
-    if (window.expertConceptMapData) {
-        restoreNodeLinks(node.id);
+    // 检查节点添加是否正确（拖放到空白区域，不检查位置）
+    const isCorrect = checkNodeCorrectness(node);
+    
+    // 🔴 在节点数据中保存正确性状态和位置，以便重新渲染后恢复
+    const addedNode = window.currentGraphData.nodes.find(n => n.id === node.id);
+    if (addedNode) {
+        addedNode.isCorrect = isCorrect; // 保存正确性状态
+        addedNode.fixedPosition = true; // 标记为固定位置，不重新布局
+        // 保存当前的位置（如果已经设置了）
+        if (addedNode.x !== undefined && addedNode.y !== undefined) {
+            addedNode.savedX = addedNode.x;
+            addedNode.savedY = addedNode.y;
+        }
+        console.log(`保存节点 ${node.id} 的状态: isCorrect=${isCorrect}, 位置=(${addedNode.x}, ${addedNode.y})`);
     }
     
     // 从待选列表中移除并标记
-    markCandidateNodeAsAdded(node.id);
+    markCandidateNodeAsAdded(node.id, isCorrect);
     
-    // 应用布局算法并重新渲染
-    applyLayoutAndRedraw();
+    // 🔴 在支架模式下，只重新渲染而不重新应用布局算法，保持布局不变
+    if (window.originalPlaceholderNodeIds && window.originalPlaceholderNodeIds.size > 0) {
+        // 支架模式：只重新渲染，不改变布局
+        redrawWithoutLayout();
+    } else {
+        // 非支架模式：应用布局算法并重新渲染
+        applyLayoutAndRedraw();
+    }
     
     // 检查是否所有节点都已添加
     checkScaffoldCompletion();
@@ -1148,50 +1558,131 @@ function addCandidateNodeToGraphAtPosition(node, x, y) {
 }
 
 /**
- * 将待选节点添加到概念图（点击方式，保持向后兼容）
+ * 将待选节点添加到概念图
+ * @param {string|Object} placeholderNodeIdOrNode - 待选框节点ID（如果填入待选框）或待选节点对象（点击方式）
+ * @param {Object} candidateNode - 待选节点对象（如果填入待选框）
+ * @param {number} dropX - 用户拖放的实际X坐标（可选）
+ * @param {number} dropY - 用户拖放的实际Y坐标（可选）
  */
-function addCandidateNodeToGraph(node) {
+function addCandidateNodeToGraph(placeholderNodeIdOrNode, candidateNode, dropX = null, dropY = null) {
     if (!window.currentGraphData) {
         window.currentGraphData = { nodes: [], links: [] };
     }
     
-    // 🔴 检查节点是否已存在（包括待填入状态的节点）
-    const existingNodeIndex = window.currentGraphData.nodes.findIndex(n => n.id === node.id);
-    if (existingNodeIndex !== -1) {
-        // 如果节点存在且是待填入状态，则将其转换为正常节点
-        const existingNode = window.currentGraphData.nodes[existingNodeIndex];
-        if (existingNode.isPlaceholder) {
-            // 将待填入节点转换为正常节点
-            window.currentGraphData.nodes[existingNodeIndex] = {
-                ...existingNode,
+    let placeholderNodeId = null;
+    let node = null;
+    
+    // 判断调用方式：两个参数（填入待选框）或一个参数（点击方式）
+    if (candidateNode) {
+        // 两个参数：填入指定的待选框
+        placeholderNodeId = placeholderNodeIdOrNode;
+        node = candidateNode;
+    } else {
+        // 一个参数：点击方式，保持向后兼容
+        node = placeholderNodeIdOrNode;
+    }
+    
+    // 🔴 保存操作前的状态（用于撤销）
+    saveScaffoldUndoState('fillNode', {
+        nodeId: node.id,
+        nodeLabel: node.label,
+        placeholderNodeId: placeholderNodeId
+    });
+    
+    // 🔴 修复：无论用户拖入哪个节点，都应该填入到目标虚线框的位置
+    // 不要检查 node.id 是否存在于图中，而是直接操作目标虚线框
+    if (placeholderNodeId) {
+        // 用户将节点拖入指定的虚线框
+        const placeholderIndex = window.currentGraphData.nodes.findIndex(n => n.id === placeholderNodeId && n.isPlaceholder === true);
+        if (placeholderIndex !== -1) {
+            const placeholderNode = window.currentGraphData.nodes[placeholderIndex];
+            
+            // 将虚线框替换为用户拖入的节点内容，但保持虚线框的位置
+            window.currentGraphData.nodes[placeholderIndex] = {
+                ...placeholderNode, // 保留虚线框的位置、尺寸、层级等
+                id: placeholderNode.id, // 🔴 关键：保持虚线框的ID（用于后续判断正确性）
                 isPlaceholder: false,
-                label: node.label || existingNode.placeholderLabel || existingNode.label
+                label: node.label, // 使用用户拖入的节点标签
+                filledWithNodeId: node.id, // 🔴 记录实际填入的节点ID（用于判断正确性）
+                filledWithLabel: node.label,
+                // 保持虚线框的位置不变
+                x: placeholderNode.x,
+                y: placeholderNode.y,
+                width: placeholderNode.width,
+                height: placeholderNode.height,
+                layer: placeholderNode.layer
             };
+            console.log(`将待选节点 "${node.label}" (ID: ${node.id}) 填入虚线框 ${placeholderNodeId}，位置保持在: (${placeholderNode.x}, ${placeholderNode.y})`);
         } else {
-            showMessage('该概念已添加到概念图中', 'warning');
+            console.warn(`找不到待填入的虚线框: ${placeholderNodeId}`);
+            showMessage('找不到目标位置', 'warning');
             return;
         }
     } else {
-        // 添加节点（使用原始位置，如果没有则让布局算法自动分配）
-        const newNode = {
-            ...node,
-            isPlaceholder: false, // 确保不是待填入状态
-            x: node.x || undefined,
-            y: node.y || undefined
-        };
-        window.currentGraphData.nodes.push(newNode);
+        // 点击方式或拖到空白区域：检查节点是否已存在
+        const existingNodeIndex = window.currentGraphData.nodes.findIndex(n => n.id === node.id);
+        if (existingNodeIndex !== -1) {
+            const existingNode = window.currentGraphData.nodes[existingNodeIndex];
+            if (existingNode.isPlaceholder) {
+                // 将对应的虚线框转换为正常节点
+                window.currentGraphData.nodes[existingNodeIndex] = {
+                    ...existingNode,
+                    isPlaceholder: false,
+                    label: node.label,
+                    filledWithNodeId: node.id,
+                    filledWithLabel: node.label
+                };
+                console.log(`点击方式：将虚线框 ${node.id} 转换为正常节点`);
+            } else {
+                showMessage('该概念已添加到概念图中', 'warning');
+                return;
+            }
+        } else {
+            // 节点不存在于图中，直接添加
+            const newNode = {
+                ...node,
+                isPlaceholder: false,
+                filledWithNodeId: node.id,
+                filledWithLabel: node.label,
+                x: node.x || undefined,
+                y: node.y || undefined
+            };
+            window.currentGraphData.nodes.push(newNode);
+            console.log(`添加新节点: ${node.id}`);
+        }
     }
     
-    // 恢复该节点在专家图中的连接关系
-    if (window.expertConceptMapData) {
-        restoreNodeLinks(node.id);
+    // 检查节点添加是否正确（如果填入待选框，传递待选框ID）
+    const isCorrect = placeholderNodeId ? 
+        checkNodeCorrectness(node, placeholderNodeId) : 
+        checkNodeCorrectness(node);
+    
+    // 🔴 在节点数据中保存正确性状态和位置，以便重新渲染后恢复
+    // 注意：如果填入虚线框，应该找虚线框节点（通过 placeholderNodeId）
+    const targetNodeId = placeholderNodeId || node.id;
+    const addedNode = window.currentGraphData.nodes.find(n => n.id === targetNodeId);
+    if (addedNode) {
+        addedNode.isCorrect = isCorrect; // 保存正确性状态
+        addedNode.fixedPosition = true; // 标记为固定位置，不重新布局
+        // 保存当前的位置（如果已经设置了）
+        if (addedNode.x !== undefined && addedNode.y !== undefined) {
+            addedNode.savedX = addedNode.x;
+            addedNode.savedY = addedNode.y;
+        }
+        console.log(`保存节点 ${targetNodeId} 的状态: isCorrect=${isCorrect}, 位置=(${addedNode.x}, ${addedNode.y}), 填入内容: ${node.label}`);
     }
     
     // 从待选列表中移除并标记
-    markCandidateNodeAsAdded(node.id);
+    markCandidateNodeAsAdded(node.id, isCorrect);
     
-    // 应用布局算法并重新渲染
-    applyLayoutAndRedraw();
+    // 🔴 在支架模式下，只重新渲染而不重新应用布局算法，保持布局不变
+    if (window.originalPlaceholderNodeIds && window.originalPlaceholderNodeIds.size > 0) {
+        // 支架模式：只重新渲染，不改变布局
+        redrawWithoutLayout();
+    } else {
+        // 非支架模式：应用布局算法并重新渲染
+        applyLayoutAndRedraw();
+    }
     
     // 检查是否所有节点都已添加
     checkScaffoldCompletion();
@@ -1202,8 +1693,10 @@ function addCandidateNodeToGraph(node) {
 
 /**
  * 标记待选节点为已添加
+ * @param {string} nodeId - 节点ID
+ * @param {boolean} isCorrect - 是否正确（可选，如果不提供则自动检查）
  */
-function markCandidateNodeAsAdded(nodeId) {
+function markCandidateNodeAsAdded(nodeId, isCorrect = null) {
     const candidateList = document.querySelector('.candidate-nodes-list');
     const nodeItem = candidateList?.querySelector(`[data-node-id="${nodeId}"]`);
     if (!nodeItem) return;
@@ -1212,8 +1705,10 @@ function markCandidateNodeAsAdded(nodeId) {
     const node = window.scaffoldCandidateNodes?.find(n => n.id === nodeId);
     if (!node) return;
     
-    // 判断添加是否正确
-    const isCorrect = checkNodeCorrectness(node);
+    // 如果没有提供正确性，自动检查
+    if (isCorrect === null) {
+        isCorrect = checkNodeCorrectness(node);
+    }
     
     // 禁用拖拽
     nodeItem.draggable = false;
@@ -1247,6 +1742,53 @@ function applyLayoutAndRedraw() {
     const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
     let layoutAppliedGraph = window.currentGraphData;
     
+    // 🔴 保存待填入节点的ID，以便布局后恢复isPlaceholder属性
+    // 优先使用全局保存的原始待填入节点ID列表（更可靠）
+    // 只有当节点还没有被用户填入时（即当前仍是 isPlaceholder），才保留其待填入状态
+    let placeholderNodeIds;
+    if (window.originalPlaceholderNodeIds && window.originalPlaceholderNodeIds.size > 0) {
+        // 使用原始列表，但排除已经被用户填入的节点
+        const filledNodeIds = new Set(
+            window.currentGraphData.nodes
+                .filter(node => node.isCorrect !== undefined && !node.isPlaceholder)
+                .map(node => node.id)
+        );
+        placeholderNodeIds = new Set(
+            Array.from(window.originalPlaceholderNodeIds).filter(id => !filledNodeIds.has(id))
+        );
+        console.log(`applyLayoutAndRedraw: 使用原始待填入节点列表，排除已填入的 ${filledNodeIds.size} 个节点后剩余 ${placeholderNodeIds.size} 个`);
+    } else {
+        // 如果没有原始列表，从当前数据中读取
+        placeholderNodeIds = new Set(
+            window.currentGraphData.nodes
+                .filter(node => node.isPlaceholder === true)
+                .map(node => node.id)
+        );
+        console.log(`applyLayoutAndRedraw: 从当前数据读取待填入节点，共 ${placeholderNodeIds.size} 个`);
+    }
+    
+    // 🔴 保存已填入节点的状态（位置、正确性等），以便布局后恢复
+    const filledNodeStates = new Map();
+    window.currentGraphData.nodes.forEach(node => {
+        if (node.fixedPosition && (node.savedX !== undefined || node.x !== undefined)) {
+            filledNodeStates.set(node.id, {
+                x: node.savedX !== undefined ? node.savedX : node.x,
+                y: node.savedY !== undefined ? node.savedY : node.y,
+                isCorrect: node.isCorrect,
+                fixedPosition: true
+            });
+        } else if (node.isCorrect !== undefined) {
+            // 即使没有固定位置，也保存正确性状态
+            filledNodeStates.set(node.id, {
+                isCorrect: node.isCorrect
+            });
+        }
+    });
+    
+    // 🔴 保存所有节点的ID，确保布局算法后所有节点都存在
+    const allNodeIds = new Set(window.currentGraphData.nodes.map(n => n.id));
+    console.log(`applyLayoutAndRedraw: 保存了 ${placeholderNodeIds.size} 个待填入节点的ID，${filledNodeStates.size} 个已填入节点的状态，总共 ${allNodeIds.size} 个节点`);
+    
     try {
         if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
             layoutAppliedGraph = window.applySugiyamaLayout(window.currentGraphData);
@@ -1261,6 +1803,92 @@ function applyLayoutAndRedraw() {
                 nodeSpacing: 60
             });
         }
+        
+        // 🔴 验证布局算法返回的节点数量
+        if (layoutAppliedGraph.nodes) {
+            const returnedNodeIds = new Set(layoutAppliedGraph.nodes.map(n => n.id));
+            const missingNodeIds = Array.from(allNodeIds).filter(id => !returnedNodeIds.has(id));
+            
+            if (missingNodeIds.length > 0) {
+                console.error(`applyLayoutAndRedraw: 警告！布局算法丢失了 ${missingNodeIds.length} 个节点:`, missingNodeIds);
+                // 恢复丢失的节点
+                missingNodeIds.forEach(missingId => {
+                    const originalNode = window.currentGraphData.nodes.find(n => n.id === missingId);
+                    if (originalNode) {
+                        console.log(`恢复丢失的节点: ${originalNode.id} (${originalNode.label})`);
+                        layoutAppliedGraph.nodes.push({ ...originalNode });
+                    }
+                });
+            }
+            
+            // 🔴 恢复已填入节点的位置和状态
+            layoutAppliedGraph.nodes.forEach(node => {
+                if (filledNodeStates.has(node.id)) {
+                    const state = filledNodeStates.get(node.id);
+                    if (state.x !== undefined && state.y !== undefined) {
+                        // 恢复固定位置
+                        node.x = state.x;
+                        node.y = state.y;
+                        node.savedX = state.x;
+                        node.savedY = state.y;
+                    }
+                    // 恢复正确性状态
+                    if (state.isCorrect !== undefined) {
+                        node.isCorrect = state.isCorrect;
+                    }
+                    // 保持固定位置标记
+                    if (state.fixedPosition) {
+                        node.fixedPosition = true;
+                    }
+                }
+            });
+        } else {
+            console.error('applyLayoutAndRedraw: 布局算法返回的数据中没有nodes数组！');
+            // 如果布局算法返回的数据无效，使用原始数据
+            layoutAppliedGraph = window.currentGraphData;
+        }
+        
+        // 🔴 验证并恢复所有节点
+        if (layoutAppliedGraph.nodes) {
+            const finalNodeCount = layoutAppliedGraph.nodes.length;
+            const originalNodeCount = window.currentGraphData.nodes.length;
+            console.log(`applyLayoutAndRedraw: 布局前节点数=${originalNodeCount}，布局后节点数=${finalNodeCount}`);
+            
+            if (finalNodeCount < originalNodeCount) {
+                console.warn(`applyLayoutAndRedraw: 警告！布局后节点数减少: ${originalNodeCount} -> ${finalNodeCount}`);
+            }
+        }
+        
+        // 🔴 恢复isPlaceholder属性（布局算法可能会丢失）
+        if (layoutAppliedGraph.nodes && placeholderNodeIds.size > 0) {
+            let restoredCount = 0;
+            layoutAppliedGraph.nodes.forEach(node => {
+                if (placeholderNodeIds.has(node.id)) {
+                    // 确保 isPlaceholder 属性被设置
+                    if (node.isPlaceholder !== true) {
+                        node.isPlaceholder = true;
+                        restoredCount++;
+                        console.log(`applyLayoutAndRedraw: 恢复了节点 ${node.id} 的 isPlaceholder 属性`);
+                    }
+                }
+            });
+            console.log(`applyLayoutAndRedraw: 总共恢复了 ${restoredCount} 个节点的 isPlaceholder 属性`);
+            
+            // 验证：检查最终数据中待填入节点的数量
+            const finalPlaceholderCount = layoutAppliedGraph.nodes.filter(n => n.isPlaceholder === true).length;
+            console.log(`applyLayoutAndRedraw: 最终数据中有 ${finalPlaceholderCount} 个待填入节点，期望 ${placeholderNodeIds.size} 个`);
+            
+            if (finalPlaceholderCount !== placeholderNodeIds.size) {
+                console.warn(`applyLayoutAndRedraw: 警告：待填入节点数量不匹配！期望 ${placeholderNodeIds.size} 个，实际 ${finalPlaceholderCount} 个`);
+                // 强制恢复所有应该待填入的节点
+                layoutAppliedGraph.nodes.forEach(node => {
+                    if (placeholderNodeIds.has(node.id) && node.isPlaceholder !== true) {
+                        console.warn(`applyLayoutAndRedraw: 强制恢复节点 ${node.id} 的 isPlaceholder 属性`);
+                        node.isPlaceholder = true;
+                    }
+                });
+            }
+        }
     } catch (error) {
         console.error('布局算法应用失败:', error);
     }
@@ -1272,6 +1900,295 @@ function applyLayoutAndRedraw() {
     // 🔴 不再需要单独绘制占位符虚线框，因为节点本身已经标记为待填入状态
     // 占位符已经作为节点的一部分在drawGraph中绘制了
 }
+
+/**
+ * 🔴 只重新渲染概念图，不重新应用布局算法
+ * 用于支架模式下填入节点时，保持现有布局不变
+ */
+function redrawWithoutLayout() {
+    console.log('redrawWithoutLayout: 只重新渲染，不改变布局');
+    
+    if (!window.currentGraphData || !window.currentGraphData.nodes) {
+        console.warn('redrawWithoutLayout: 没有图形数据');
+        return;
+    }
+    
+    // 检查是否处于支架模式
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    const isScaffoldMode = conceptMapDisplay && conceptMapDisplay.classList.contains('scaffold-mode');
+    
+    if (isScaffoldMode) {
+        // 支架模式：渲染到 .scaffold-concept-graph
+        const svg = document.querySelector('.scaffold-concept-graph');
+        if (svg && window.drawGraph) {
+            // 清空 SVG
+            svg.innerHTML = '';
+            
+            // 临时添加 concept-graph 类以便 drawGraph 能找到它
+            const originalClass = svg.className.baseVal;
+            svg.classList.add('concept-graph');
+            
+            // 重新渲染
+            window.drawGraph(window.currentGraphData);
+            
+            // 恢复原始类名
+            svg.className.baseVal = originalClass;
+            
+            console.log('redrawWithoutLayout: 支架模式渲染完成');
+        }
+    } else {
+        // 非支架模式：渲染到 .concept-graph
+        if (window.drawGraph) {
+            window.drawGraph(window.currentGraphData);
+            console.log('redrawWithoutLayout: 普通模式渲染完成');
+        }
+    }
+}
+
+//=============================================================================
+// 支架模式撤销功能
+//=============================================================================
+
+/**
+ * 保存支架模式的撤销状态
+ * @param {string} actionType - 操作类型（如 'fillNode'）
+ * @param {Object} actionData - 操作数据
+ */
+function saveScaffoldUndoState(actionType, actionData) {
+    if (!window.scaffoldUndoStack) {
+        window.scaffoldUndoStack = [];
+    }
+    
+    // 深拷贝当前图数据
+    const graphDataSnapshot = JSON.parse(JSON.stringify(window.currentGraphData));
+    
+    // 保存待选节点列表的状态
+    const candidateNodesSnapshot = window.scaffoldCandidateNodes ? 
+        JSON.parse(JSON.stringify(window.scaffoldCandidateNodes)) : [];
+    
+    // 保存待选节点DOM状态
+    const candidateNodesDOMState = [];
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    if (candidateList) {
+        candidateList.querySelectorAll('.candidate-node-item').forEach(item => {
+            candidateNodesDOMState.push({
+                nodeId: item.getAttribute('data-node-id'),
+                innerHTML: item.innerHTML,
+                style: item.getAttribute('style'),
+                draggable: item.draggable
+            });
+        });
+    }
+    
+    const undoState = {
+        timestamp: Date.now(),
+        actionType: actionType,
+        actionData: actionData,
+        graphData: graphDataSnapshot,
+        candidateNodes: candidateNodesSnapshot,
+        candidateNodesDOMState: candidateNodesDOMState
+    };
+    
+    window.scaffoldUndoStack.push(undoState);
+    
+    // 限制撤销栈大小
+    if (window.scaffoldUndoStack.length > (window.scaffoldMaxUndoSteps || 20)) {
+        window.scaffoldUndoStack.shift();
+    }
+    
+    console.log(`saveScaffoldUndoState: 保存撤销状态，类型: ${actionType}，栈大小: ${window.scaffoldUndoStack.length}`);
+}
+
+/**
+ * 执行支架模式的撤销操作
+ */
+function scaffoldUndo() {
+    if (!window.scaffoldUndoStack || window.scaffoldUndoStack.length === 0) {
+        console.log('scaffoldUndo: 没有可撤销的操作');
+        showMessage('没有可撤销的操作', 'info');
+        return false;
+    }
+    
+    const undoState = window.scaffoldUndoStack.pop();
+    console.log(`scaffoldUndo: 撤销操作，类型: ${undoState.actionType}，剩余栈大小: ${window.scaffoldUndoStack.length}`);
+    
+    // 恢复图数据
+    window.currentGraphData = undoState.graphData;
+    
+    // 恢复待选节点列表
+    window.scaffoldCandidateNodes = undoState.candidateNodes;
+    
+    // 🔴 完全恢复待选节点到初始状态
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    if (candidateList && undoState.actionData && undoState.actionData.nodeId) {
+        const nodeId = undoState.actionData.nodeId;
+        const nodeLabel = undoState.actionData.nodeLabel;
+        const item = candidateList.querySelector(`[data-node-id="${nodeId}"]`);
+        
+        if (item) {
+            // 获取节点数据
+            const node = window.scaffoldCandidateNodes?.find(n => n.id === nodeId);
+            const layer = node?.layer || 1;
+            
+            // 恢复到初始状态的样式
+            item.style.cssText = `
+                padding: 12px;
+                background: white;
+                border: 2px solid #667eea;
+                border-radius: 6px;
+                cursor: grab;
+                transition: all 0.2s;
+                user-select: none;
+            `;
+            
+            // 恢复到初始状态的内容
+            item.innerHTML = `
+                <div style="font-weight: 600; color: #2c3e50; margin-bottom: 4px;">${nodeLabel}</div>
+                <div style="font-size: 12px; color: #6c757d;">层级: L${layer}</div>
+                <div style="font-size: 11px; color: #667eea; margin-top: 4px;">👆 拖拽到右侧概念图</div>
+            `;
+            
+            // 恢复可拖拽状态
+            item.draggable = true;
+            item.style.pointerEvents = 'auto';
+            item.style.opacity = '1';
+            
+            // 🔴 重新绑定拖拽事件
+            rebindCandidateNodeDragEvents(item, node || { id: nodeId, label: nodeLabel, layer: layer });
+            
+            console.log(`scaffoldUndo: 已恢复节点 ${nodeLabel} 到初始状态`);
+        }
+    }
+    
+    // 重新渲染概念图
+    redrawWithoutLayout();
+    
+    // 🔴 使用 setTimeout 确保 DOM 更新完成后再更新统计
+    setTimeout(() => {
+        updateCorrectnessStats();
+    }, 50);
+    
+    showMessage('已撤销上一步操作', 'success');
+    return true;
+}
+
+/**
+ * 重新绑定待选节点的拖拽事件
+ * @param {HTMLElement} nodeItem - 待选节点DOM元素
+ * @param {Object} node - 节点数据
+ */
+function rebindCandidateNodeDragEvents(nodeItem, node) {
+    // 移除旧的事件监听器（通过克隆节点来移除）
+    const newItem = nodeItem.cloneNode(true);
+    nodeItem.parentNode.replaceChild(newItem, nodeItem);
+    
+    // 重新绑定拖拽开始事件
+    newItem.addEventListener('dragstart', function(e) {
+        e.dataTransfer.setData('text/plain', node.id);
+        e.dataTransfer.effectAllowed = 'move';
+        this.style.opacity = '0.5';
+        this.style.cursor = 'grabbing';
+        
+        // 创建拖拽预览
+        const dragPreview = this.cloneNode(true);
+        dragPreview.style.cssText = `
+            position: absolute;
+            top: -1000px;
+            left: -1000px;
+            width: ${this.offsetWidth}px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            padding: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+        document.body.appendChild(dragPreview);
+        e.dataTransfer.setDragImage(dragPreview, this.offsetWidth / 2, this.offsetHeight / 2);
+        
+        // 标记正在拖拽的节点
+        window.draggingNodeId = node.id;
+        window.draggingNode = node;
+    });
+    
+    // 重新绑定拖拽结束事件
+    newItem.addEventListener('dragend', function(e) {
+        this.style.opacity = '1';
+        this.style.cursor = 'grab';
+        
+        // 清除待选框高亮
+        if (typeof clearPlaceholderHighlight === 'function') {
+            clearPlaceholderHighlight();
+        }
+        
+        window.draggingNodeId = null;
+        window.draggingNode = null;
+        
+        // 移除拖拽预览
+        const dragPreviews = document.querySelectorAll('body > div[style*="position: absolute"]');
+        dragPreviews.forEach(preview => {
+            if (preview.style.top === '-1000px') {
+                preview.remove();
+            }
+        });
+    });
+    
+    // 重新绑定悬停效果
+    newItem.addEventListener('mouseenter', function() {
+        if (this.draggable && this.style.opacity !== '0.5') {
+            this.style.background = '#f0f4ff';
+            this.style.transform = 'translateX(5px)';
+        }
+    });
+    
+    newItem.addEventListener('mouseleave', function() {
+        if (this.draggable && this.style.opacity !== '0.5') {
+            this.style.background = 'white';
+            this.style.transform = 'translateX(0)';
+        }
+    });
+}
+
+/**
+ * 清空支架模式的撤销栈
+ */
+function clearScaffoldUndoStack() {
+    window.scaffoldUndoStack = [];
+    console.log('clearScaffoldUndoStack: 撤销栈已清空');
+}
+
+/**
+ * 初始化支架模式的键盘事件监听（Ctrl+Z 撤销）
+ */
+function initScaffoldKeyboardShortcuts() {
+    // 移除旧的监听器（如果存在）
+    if (window.scaffoldKeyboardHandler) {
+        document.removeEventListener('keydown', window.scaffoldKeyboardHandler);
+    }
+    
+    // 创建新的监听器
+    window.scaffoldKeyboardHandler = function(e) {
+        // 检查是否处于支架模式
+        const conceptMapDisplay = document.querySelector('.concept-map-display');
+        const isScaffoldMode = conceptMapDisplay && conceptMapDisplay.classList.contains('scaffold-mode');
+        
+        if (!isScaffoldMode) return;
+        
+        // Ctrl+Z 或 Cmd+Z（Mac）
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            scaffoldUndo();
+        }
+    };
+    
+    document.addEventListener('keydown', window.scaffoldKeyboardHandler);
+    console.log('initScaffoldKeyboardShortcuts: 键盘快捷键已初始化');
+}
+
+// 导出撤销相关函数到全局
+window.saveScaffoldUndoState = saveScaffoldUndoState;
+window.scaffoldUndo = scaffoldUndo;
+window.clearScaffoldUndoStack = clearScaffoldUndoStack;
+window.initScaffoldKeyboardShortcuts = initScaffoldKeyboardShortcuts;
 
 /**
  * 绘制虚线框占位符（用于标记被移除节点的位置）
@@ -1386,35 +2303,63 @@ function restoreNodeLinks(nodeId) {
 
 /**
  * 检查节点添加是否正确
- * @param {Object} node - 要检查的节点
+ * 
+ * 🔴 核心判断逻辑：
+ * - 如果提供了 placeholderNodeId，检查用户拖入的节点ID是否与待填入框的ID相同
+ * - 待填入框的ID就是原本应该放置的节点ID（在removeNodesForScaffold中保留了原节点ID）
+ * - 所以正确的判断是：placeholderNodeId === node.id
+ * 
+ * @param {Object} node - 要检查的节点（用户拖入的待选概念）
+ * @param {string} placeholderNodeId - 待填入框的ID（可选，用于检查是否填入了正确的位置）
  * @returns {boolean} 是否正确
  */
-function checkNodeCorrectness(node) {
+function checkNodeCorrectness(node, placeholderNodeId = null) {
+    console.log('checkNodeCorrectness: 检查节点正确性', {
+        nodeId: node.id,
+        nodeLabel: node.label,
+        placeholderNodeId: placeholderNodeId
+    });
+    
     if (!window.expertConceptMapData) {
         // 如果没有专家图，无法判断，默认返回true
+        console.log('checkNodeCorrectness: 没有专家图数据，默认返回true');
         return true;
     }
     
     // 检查节点是否存在于专家图中
     const expertNode = window.expertConceptMapData.nodes.find(n => n.id === node.id);
     if (!expertNode) {
-        console.warn('节点不在专家图中:', node.id);
+        console.warn('checkNodeCorrectness: 节点不在专家图中:', node.id);
         return false;
     }
     
-    // 检查节点标签是否匹配
-    if (expertNode.label !== node.label) {
-        console.warn('节点标签不匹配:', expertNode.label, 'vs', node.label);
-        return false;
+    // 🔴 关键判断逻辑：如果提供了待填入框ID，检查是否填入了正确的位置
+    // 待填入框的ID就是原本应该放置的节点ID
+    // 所以正确的判断是：placeholderNodeId === node.id
+    if (placeholderNodeId) {
+        const isCorrectPosition = (placeholderNodeId === node.id);
+        console.log('checkNodeCorrectness: 检查位置', {
+            placeholderNodeId: placeholderNodeId,
+            nodeId: node.id,
+            isCorrectPosition: isCorrectPosition
+        });
+        
+        if (!isCorrectPosition) {
+            // 获取待填入框原本应该放置的节点信息（用于日志）
+            const expectedNode = window.expertConceptMapData.nodes.find(n => n.id === placeholderNodeId);
+            console.warn('checkNodeCorrectness: 节点位置错误!', {
+                expected: expectedNode ? expectedNode.label : placeholderNodeId,
+                actual: node.label
+            });
+            return false;
+        }
+        
+        console.log('checkNodeCorrectness: 节点位置正确!', node.label);
+        return true;
     }
     
-    // 检查节点层级是否匹配
-    if (expertNode.layer !== node.layer) {
-        console.warn('节点层级不匹配:', expertNode.layer, 'vs', node.layer);
-        return false;
-    }
-    
-    // 节点基本信息匹配，返回true
+    // 如果没有提供待填入框ID（拖到空白区域或点击添加），只检查节点是否存在于专家图中
+    console.log('checkNodeCorrectness: 没有待填入框ID，节点存在于专家图中，返回true');
     return true;
 }
 
@@ -1431,11 +2376,22 @@ function updateCorrectnessStats() {
     let totalCount = allItems.length;
     
     allItems.forEach(item => {
-        if (item.style.background.includes('d4edda')) {
+        // 🔴 改进检测逻辑：检查多种方式确定节点状态
+        const bgColor = item.style.background || item.style.backgroundColor || '';
+        const borderColor = item.style.borderColor || '';
+        const innerHTML = item.innerHTML || '';
+        
+        // 检查是否是正确状态（绿色背景或包含"正确"文字）
+        if (bgColor.includes('d4edda') || bgColor.includes('rgb(212, 237, 218)') || 
+            borderColor.includes('28a745') || innerHTML.includes('✓ 正确')) {
             correctCount++;
-        } else if (item.style.background.includes('f8d7da')) {
+        } 
+        // 检查是否是错误状态（红色背景或包含"不正确"文字）
+        else if (bgColor.includes('f8d7da') || bgColor.includes('rgb(248, 215, 218)') ||
+                 borderColor.includes('dc3545') || innerHTML.includes('✗ 不正确')) {
             incorrectCount++;
         }
+        // 其他情况为未添加状态（白色背景，包含"拖拽到右侧概念图"文字）
     });
     
     // 更新统计显示
@@ -1474,6 +2430,8 @@ function updateCorrectnessStats() {
             准确率: ${accuracy}%
         </div>
     `;
+    
+    console.log(`updateCorrectnessStats: 总数=${totalCount}, 已添加=${addedCount}, 正确=${correctCount}, 错误=${incorrectCount}`);
 }
 
 /**
@@ -1538,20 +2496,23 @@ function displayExpertConceptMap(expertData) {
     
     console.log('开始渲染专家图，数据:', expertData);
     
+    // 🔴 深拷贝专家数据，避免修改原始数据
+    const expertDataCopy = JSON.parse(JSON.stringify(expertData));
+    
     // 清空SVG
     svg.innerHTML = '';
     
     // 先应用布局算法
     const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
-    let layoutAppliedData = expertData;
+    let layoutAppliedData = expertDataCopy;
     
     try {
         if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
             console.log('专家图：应用Sugiyama布局');
-            layoutAppliedData = window.applySugiyamaLayout(expertData);
+            layoutAppliedData = window.applySugiyamaLayout(expertDataCopy);
         } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
             console.log('专家图：应用力导向布局');
-            layoutAppliedData = window.applyForceDirectedLayout(expertData, {
+            layoutAppliedData = window.applyForceDirectedLayout(expertDataCopy, {
                 width: 2400,
                 height: 1200,
                 iterations: 300,
@@ -1565,54 +2526,62 @@ function displayExpertConceptMap(expertData) {
         console.error('专家图布局算法应用失败:', error);
     }
     
-    // 临时设置currentGraphData
+    // 🔴 临时保存并修改状态，确保 drawGraph 渲染到正确的 SVG
     const originalData = window.currentGraphData;
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    const wasScaffoldMode = conceptMapDisplay && conceptMapDisplay.classList.contains('scaffold-mode');
+    
+    // 临时移除 scaffold-mode 类，这样 drawGraph 就不会优先查找 scaffold-concept-graph
+    if (wasScaffoldMode) {
+        conceptMapDisplay.classList.remove('scaffold-mode');
+    }
+    
+    // 临时隐藏 scaffold-concept-graph
+    const scaffoldSvg = document.querySelector('.scaffold-concept-graph');
+    const scaffoldDisplay = scaffoldSvg ? scaffoldSvg.style.display : '';
+    if (scaffoldSvg) {
+        scaffoldSvg.style.display = 'none';
+    }
+    
+    // 将专家图 SVG 添加 concept-graph 类
+    svg.classList.add('concept-graph');
+    
+    // 设置数据
     window.currentGraphData = layoutAppliedData;
     
-    // 使用drawGraph函数直接渲染到指定的SVG
+    // 使用 drawGraph 渲染（保留原有样式）
     if (window.drawGraph) {
-        // 临时隐藏其他concept-graph SVG，确保drawGraph找到正确的SVG
-        const otherSvg = document.querySelector('.scaffold-concept-graph');
-        const otherDisplay = otherSvg ? otherSvg.style.display : null;
-        if (otherSvg) {
-            otherSvg.style.display = 'none';
-        }
-        
-        // 保存原始类名
-        const originalClass = svg.className.baseVal;
-        
-        // 临时将SVG添加到concept-graph类，以便drawGraph能找到它
-        svg.classList.add('concept-graph');
-        
-        // 调用drawGraph渲染
-        console.log('调用drawGraph渲染专家图');
+        console.log('调用 drawGraph 渲染专家图');
         window.drawGraph(layoutAppliedData);
-        
-        // 恢复类名
-        svg.className.baseVal = originalClass;
-        svg.classList.add('expert-concept-graph');
-        
-        // 恢复其他SVG的显示
-        if (otherSvg && otherDisplay !== null) {
-            otherSvg.style.display = otherDisplay;
-        }
-        
-        // 标记已渲染
-        const g = svg.querySelector('g');
-        if (g) {
-            g.setAttribute('data-rendered', 'true');
-        }
-        
-        // 调整viewBox以确保所有内容可见
-        adjustExpertMapViewBox(svg, layoutAppliedData);
-        
-        // 恢复currentGraphData
-        window.currentGraphData = originalData;
-        
-        console.log('专家图渲染完成');
-    } else {
-        console.error('drawGraph函数不存在');
     }
+    
+    // 🔴 恢复所有状态
+    // 移除 concept-graph 类
+    svg.classList.remove('concept-graph');
+    
+    // 恢复 scaffold-concept-graph 显示
+    if (scaffoldSvg) {
+        scaffoldSvg.style.display = scaffoldDisplay;
+    }
+    
+    // 恢复 scaffold-mode 类
+    if (wasScaffoldMode) {
+        conceptMapDisplay.classList.add('scaffold-mode');
+    }
+    
+    // 恢复原始数据
+    window.currentGraphData = originalData;
+    
+    // 标记已渲染
+    const g = svg.querySelector('g');
+    if (g) {
+        g.setAttribute('data-rendered', 'true');
+    }
+    
+    // 调整viewBox以确保所有内容可见
+    adjustExpertMapViewBox(svg, layoutAppliedData);
+    
+    console.log('专家图渲染完成');
 }
 
 /**
@@ -2635,6 +3604,40 @@ function generateFocusQuestion(type, data) {
 function clearPreviousConceptMap() {
     console.log('开始清除之前的概念图内容...');
     
+    // 清理支架模式的布局（如果存在）
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (conceptMapDisplay) {
+        // 移除支架模式类
+        conceptMapDisplay.classList.remove('scaffold-mode');
+        
+        // 移除支架容器及其所有子元素（待选概念区、支架概念图等）
+        const scaffoldContainer = conceptMapDisplay.querySelector('.scaffold-container');
+        if (scaffoldContainer) {
+            scaffoldContainer.remove();
+            console.log('已移除支架模式布局');
+        }
+        
+        // 移除专家图区域
+        const expertMapArea = conceptMapDisplay.querySelector('.expert-map-area');
+        if (expertMapArea) {
+            expertMapArea.remove();
+        }
+        
+        // 恢复正常的布局结构
+        if (!conceptMapDisplay.querySelector('.graph-canvas-fullwidth')) {
+            const graphCanvas = document.createElement('div');
+            graphCanvas.className = 'graph-canvas-fullwidth';
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', '100%');
+            svg.setAttribute('height', '1200');
+            svg.setAttribute('class', 'concept-graph');
+            svg.setAttribute('viewBox', '0 0 2400 1200');
+            graphCanvas.appendChild(svg);
+            conceptMapDisplay.appendChild(graphCanvas);
+            console.log('已恢复正常的布局结构');
+        }
+    }
+    
     // 清空AI介绍文字（现在在control-bar中）
     const aiIntroText = document.getElementById('aiIntroText');
     if (aiIntroText) {
@@ -2676,6 +3679,13 @@ function clearPreviousConceptMap() {
             svg.removeChild(svg.firstChild);
         }
     }
+    
+    // 清除支架模式相关的全局变量
+    window.scaffoldCandidateNodes = null;
+    window.scaffoldPlaceholders = null;
+    window.expertConceptMapData = null;
+    window.originalPlaceholderNodeIds = null; // 🔴 清除原始待填入节点ID列表
+    window.scaffoldUndoStack = []; // 🔴 清空撤销栈
     
     // 清除焦点问题
     window.focusQuestion = null;

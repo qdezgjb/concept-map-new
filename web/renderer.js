@@ -239,27 +239,46 @@ function displayConceptMap(graphData) {
 function drawGraph(data) {
         console.log('drawGraph 函数被调用，数据:', data);
         
-        // 查找SVG元素（可能在concept-map-display或graph-canvas-fullwidth中）
+        // 🔴 检查数据中的待填入节点数量（用于调试）
+        const placeholderNodesInData = data.nodes ? data.nodes.filter(n => n.isPlaceholder === true).length : 0;
+        console.log(`drawGraph: 输入数据中有 ${placeholderNodesInData} 个待填入节点`);
+        if (placeholderNodesInData > 0) {
+            console.log('待填入节点ID:', data.nodes.filter(n => n.isPlaceholder === true).map(n => n.id));
+        }
+        
+        // 查找SVG元素（优先查找支架模式的SVG）
         const conceptMapDisplay = document.querySelector('.concept-map-display');
-        const graphCanvasFullwidth = document.querySelector('.graph-canvas-fullwidth');
         
         let svg = null;
-        if (conceptMapDisplay) {
-            svg = conceptMapDisplay.querySelector('.concept-graph');
+        
+        // 🔴 优先查找支架模式的 SVG（如果存在）
+        if (conceptMapDisplay && conceptMapDisplay.classList.contains('scaffold-mode')) {
+            svg = conceptMapDisplay.querySelector('.scaffold-concept-graph');
+            if (svg) {
+                console.log('drawGraph: 找到支架模式的 SVG:', svg.className);
+            }
         }
-        if (!svg && graphCanvasFullwidth) {
-            svg = graphCanvasFullwidth.querySelector('.concept-graph');
-        }
+        
+        // 如果没有找到支架模式的 SVG，则查找普通的 SVG
         if (!svg) {
-            // 直接查找concept-graph
-            svg = document.querySelector('.concept-graph');
+            const graphCanvasFullwidth = document.querySelector('.graph-canvas-fullwidth');
+            if (conceptMapDisplay) {
+                svg = conceptMapDisplay.querySelector('.concept-graph');
+            }
+            if (!svg && graphCanvasFullwidth) {
+                svg = graphCanvasFullwidth.querySelector('.concept-graph');
+            }
+            if (!svg) {
+                // 直接查找concept-graph
+                svg = document.querySelector('.concept-graph');
+            }
         }
         
         if (!svg) {
             console.error('concept-graph SVG 元素未找到');
             return;
         }
-        console.log('concept-graph SVG 元素找到:', svg);
+        console.log('drawGraph: SVG 元素找到:', svg.className || svg);
         
         const width = svg.clientWidth || 1200;
         const height = svg.clientHeight || 1200;
@@ -297,8 +316,9 @@ function drawGraph(data) {
             let source = nodeById.get(link.source);
             let target = nodeById.get(link.target);
             
+            // 🔴 修复：不再依赖 link.sourceRemoved/targetRemoved 标志，直接检查占位符
             // 如果源节点或目标节点不存在，检查是否是占位符
-            if (!source && link.sourceRemoved && window.scaffoldPlaceholders) {
+            if (!source && window.scaffoldPlaceholders) {
                 const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
                 if (placeholder) {
                     // 创建临时节点对象用于绘制连线
@@ -312,7 +332,7 @@ function drawGraph(data) {
                 }
             }
             
-            if (!target && link.targetRemoved && window.scaffoldPlaceholders) {
+            if (!target && window.scaffoldPlaceholders) {
                 const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
                 if (placeholder) {
                     // 创建临时节点对象用于绘制连线
@@ -326,7 +346,10 @@ function drawGraph(data) {
                 }
             }
             
-            if (!source || !target) return;
+            if (!source || !target) {
+                console.warn(`drawGraph: 连线 ${link.source} -> ${link.target} 找不到源或目标节点`);
+                return;
+            }
             
             // 计算折线路径（传入所有连线以检测双向连接）
             const pathData = calculatePolylinePath(link, data.nodes, data.links);
@@ -356,15 +379,38 @@ function drawGraph(data) {
             if (pathData.isCurved) {
                 // 圆弧：使用辅助函数计算标签和箭头位置
                 const controlPoint = pathData.controlPoint || waypoints[1];
-                const positions = calculateCurvedLinkPositions(
-                    startX, startY, endX, endY, 
-                    controlPoint, 
-                    link.label || '双击编辑'
-                );
-                midX = positions.midX;
-                midY = positions.midY;
-                arrowX = positions.arrowX;
-                arrowY = positions.arrowY;
+                
+                // 检查是否为同级连接（同层连接）
+                const sourceNode = data.nodes.find(n => n.id === link.source);
+                const targetNode = data.nodes.find(n => n.id === link.target);
+                const isSameLayer = sourceNode && targetNode && 
+                    sourceNode.layer !== undefined && targetNode.layer !== undefined && 
+                    sourceNode.layer === targetNode.layer;
+                
+                if (isSameLayer) {
+                    // 同级连接：箭头位置应该在目标节点的连接点（endX, endY）
+                    const positions = calculateCurvedLinkPositions(
+                        startX, startY, endX, endY, 
+                        controlPoint, 
+                        link.label || '双击编辑'
+                    );
+                    midX = positions.midX;
+                    midY = positions.midY;
+                    // 对于同级连接，箭头直接使用终点位置
+                    arrowX = endX;
+                    arrowY = endY;
+                } else {
+                    // 非同级连接：使用计算出的箭头位置
+                    const positions = calculateCurvedLinkPositions(
+                        startX, startY, endX, endY, 
+                        controlPoint, 
+                        link.label || '双击编辑'
+                    );
+                    midX = positions.midX;
+                    midY = positions.midY;
+                    arrowX = positions.arrowX;
+                    arrowY = positions.arrowY;
+                }
             } else if (waypoints.length === 3) {
                 // 两段折线：使用中间点作为标签位置
                 midX = waypoints[1].x;
@@ -524,6 +570,11 @@ function drawGraph(data) {
 
             // 🔴 检查是否是待填入节点（支架模式）
             const isPlaceholder = node.isPlaceholder === true;
+            
+            // 调试日志：如果是待填入节点，输出详细信息
+            if (isPlaceholder) {
+                console.log(`drawGraph: 发现待填入节点 ${idx + 1}: id=${node.id}, label=${node.label || node.placeholderLabel || '无标签'}, isPlaceholder=${node.isPlaceholder}`);
+            }
 
             // 计算节点尺寸 - 根据文字内容自动调整
             const nodeLabel = isPlaceholder ? '待填入' : (node.label || `节点${idx + 1}`);
@@ -548,6 +599,7 @@ function drawGraph(data) {
             
             // 🔴 待填入节点使用虚线框样式
             if (isPlaceholder) {
+                console.log(`drawGraph: 绘制待填入节点 ${node.id} 的虚线框，位置: (${node.x}, ${node.y})`);
                 rect.setAttribute('fill', 'none');
                 rect.setAttribute('fill-opacity', '0');
                 rect.setAttribute('stroke', '#667eea');
@@ -557,13 +609,27 @@ function drawGraph(data) {
             } else {
                 rect.setAttribute('fill', '#667eea');
                 rect.setAttribute('fill-opacity', '0.9');
-                // 根据选中状态设置边框样式
-                if (selectedNodeId === node.id) {
-                    rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                
+                // 🔴 检查节点是否有正确性状态，根据状态设置边框颜色
+                if (node.isCorrect === true) {
+                    // 正确：显示绿色边框
+                    rect.setAttribute('stroke', '#28a745');
                     rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                } else if (node.isCorrect === false) {
+                    // 错误：显示红色边框
+                    rect.setAttribute('stroke', '#dc3545');
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
                 } else {
-                    rect.setAttribute('stroke', '#fff');
-                    rect.setAttribute('stroke-width', '2');
+                    // 没有正确性状态，根据选中状态设置边框样式
+                    if (selectedNodeId === node.id) {
+                        rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                        rect.setAttribute('stroke-width', '3');
+                    } else {
+                        rect.setAttribute('stroke', '#fff');
+                        rect.setAttribute('stroke-width', '2');
+                    }
                 }
             }
             
@@ -659,39 +725,63 @@ function drawGraph(data) {
  * 缩放时始终保持概念图在正中央
  */
 function enableCanvasZoom() {
-        const svg = document.querySelector('.concept-graph');
+        // 支持普通概念图和支架概念图
+        let svg = document.querySelector('.concept-graph');
+        if (!svg) {
+            svg = document.querySelector('.scaffold-concept-graph');
+        }
         if (!svg) return;
         
         if (svg.hasAttribute('data-zoom-enabled')) {
             return; // 已经绑定过缩放事件
         }
         
-        // 初始化缩放状态
-        window.graphZoomState = window.graphZoomState || {
-            scale: 1,
-            minScale: 0.4,
-            maxScale: 2.5
-        };
+        // 初始化缩放状态（为每个SVG单独维护状态）
+        const svgId = svg.classList.contains('scaffold-concept-graph') ? 'scaffold' : 'normal';
+        if (!window.graphZoomState) {
+            window.graphZoomState = {};
+        }
+        if (!window.graphZoomState[svgId]) {
+            window.graphZoomState[svgId] = {
+                scale: 1,
+                minScale: 0.4,
+                maxScale: 2.5,
+                baseViewBoxWidth: null,  // 保存基准 viewBox 宽度
+                baseViewBoxHeight: null  // 保存基准 viewBox 高度
+            };
+        }
         
-        // 记录初始 viewBox
+        // 获取初始 viewBox（用于计算初始尺寸，作为缩放基准）
         const initialViewBox = svg.getAttribute('viewBox') || '0 0 2400 1200';
         const parts = initialViewBox.split(' ').map(parseFloat);
-        let viewBoxX = parts[0] || 0;
-        let viewBoxY = parts[1] || 0;
-        const viewBoxWidth = parts[2] || 2400;
-        const viewBoxHeight = parts[3] || 1200;
+        const initialViewBoxWidth = parts[2] || 2400;
+        const initialViewBoxHeight = parts[3] || 1200;
+        
+        // 如果还没有保存基准尺寸，则保存
+        if (window.graphZoomState[svgId].baseViewBoxWidth === null) {
+            window.graphZoomState[svgId].baseViewBoxWidth = initialViewBoxWidth;
+            window.graphZoomState[svgId].baseViewBoxHeight = initialViewBoxHeight;
+        }
         
         /**
          * 计算概念图的中心点
          * @returns {{centerX: number, centerY: number}} 概念图的中心坐标
          */
         function getGraphCenter() {
+            // 获取当前的 viewBox
+            const currentViewBox = svg.getAttribute('viewBox') || '0 0 2400 1200';
+            const currentParts = currentViewBox.split(' ').map(parseFloat);
+            const currentViewBoxX = currentParts[0] || 0;
+            const currentViewBoxY = currentParts[1] || 0;
+            const currentViewBoxWidth = currentParts[2] || initialViewBoxWidth;
+            const currentViewBoxHeight = currentParts[3] || initialViewBoxHeight;
+            
             const graphData = window.currentGraphData;
             if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
                 // 如果没有节点数据，使用viewBox的中心
                 return {
-                    centerX: viewBoxX + viewBoxWidth / 2,
-                    centerY: viewBoxY + viewBoxHeight / 2
+                    centerX: currentViewBoxX + currentViewBoxWidth / 2,
+                    centerY: currentViewBoxY + currentViewBoxHeight / 2
                 };
             }
             
@@ -724,8 +814,8 @@ function enableCanvasZoom() {
             // 如果所有节点都没有坐标，使用viewBox的中心
             if (minX === Infinity) {
                 return {
-                    centerX: viewBoxX + viewBoxWidth / 2,
-                    centerY: viewBoxY + viewBoxHeight / 2
+                    centerX: currentViewBoxX + currentViewBoxWidth / 2,
+                    centerY: currentViewBoxY + currentViewBoxHeight / 2
                 };
             }
             
@@ -738,20 +828,31 @@ function enableCanvasZoom() {
         
         svg.addEventListener('wheel', function (e) {
             e.preventDefault();
+            e.stopPropagation();
             
             const zoomFactor = 0.1; // 每次滚轮缩放比例
-            let { scale, minScale, maxScale } = window.graphZoomState;
+            let { scale, minScale, maxScale } = window.graphZoomState[svgId];
             
+            // 上滚放大（deltaY < 0），下滚缩小（deltaY > 0）
             if (e.deltaY < 0) {
-                // 放大
+                // 向上滚动，放大（增大scale）
                 scale *= (1 + zoomFactor);
-            } else {
-                // 缩小
+            } else if (e.deltaY > 0) {
+                // 向下滚动，缩小（减小scale）
                 scale *= (1 - zoomFactor);
+            } else {
+                // deltaY === 0，不处理
+                return;
             }
             
+            // 限制缩放范围
             scale = Math.max(minScale, Math.min(maxScale, scale));
-            window.graphZoomState.scale = scale;
+            window.graphZoomState[svgId].scale = scale;
+            
+            // 使用保存的基准 viewBox 尺寸进行缩放计算（而不是当前 viewBox）
+            // 这样可以确保缩放始终基于初始尺寸，避免累积误差
+            const baseWidth = window.graphZoomState[svgId].baseViewBoxWidth || initialViewBoxWidth;
+            const baseHeight = window.graphZoomState[svgId].baseViewBoxHeight || initialViewBoxHeight;
             
             // 获取概念图的中心点
             const graphCenter = getGraphCenter();
@@ -759,18 +860,22 @@ function enableCanvasZoom() {
             const centerY = graphCenter.centerY;
             
             // 以概念图中心为缩放中心，调整viewBox大小
-            const newWidth = viewBoxWidth / scale;
-            const newHeight = viewBoxHeight / scale;
+            // scale 越大，viewBox 越小，显示的内容越少（放大）
+            // scale 越小，viewBox 越大，显示的内容越多（缩小）
+            const newWidth = baseWidth / scale;
+            const newHeight = baseHeight / scale;
             
             // 调整viewBox位置，使概念图中心始终在视图中心
-            viewBoxX = centerX - newWidth / 2;
-            viewBoxY = centerY - newHeight / 2;
+            const newViewBoxX = centerX - newWidth / 2;
+            const newViewBoxY = centerY - newHeight / 2;
             
-            svg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${newWidth} ${newHeight}`);
+            svg.setAttribute('viewBox', `${newViewBoxX} ${newViewBoxY} ${newWidth} ${newHeight}`);
             console.log('画布缩放:', { 
+                deltaY: e.deltaY,
+                direction: e.deltaY < 0 ? '向上滚动(放大)' : '向下滚动(缩小)',
                 scale, 
-                viewBoxX, 
-                viewBoxY, 
+                viewBoxX: newViewBoxX, 
+                viewBoxY: newViewBoxY, 
                 newWidth, 
                 newHeight,
                 graphCenterX: centerX,
@@ -1024,7 +1129,7 @@ function updateConnectedLinks(nodeId) {
                     const currentLine = linkGroup.querySelector('path:nth-child(1)');
                     const currentPath = currentLine ? currentLine.getAttribute('d') : '';
                     const isCurrentlyPolyline = currentPath.includes('L') && currentPath.split('L').length > 2;
-                    const shouldBePolyline = overlapCheck.hasOverlap;
+                    const shouldBePolyline = overlapCheck && overlapCheck.hasOverlap;
                     
                     if (shouldBePolyline !== isCurrentlyPolyline) {
                         // 连接线类型需要改变，重新绘制
@@ -1033,6 +1138,10 @@ function updateConnectedLinks(nodeId) {
                         // 连接线类型不变，只更新位置
                         updateLinkPosition(linkGroup, link);
                     }
+                } else {
+                    // 🔴 连线不存在，尝试重新绘制
+                    console.warn(`updateConnectedLinks: 连线 ${linkIdStr} 不存在，尝试重新绘制`);
+                    redrawSingleLink(link);
                 }
             }
         });
@@ -1209,10 +1318,43 @@ function redrawSingleLink(link) {
         }
 
         // 重新绘制连接线
-        const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
-        const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
+        // 🔴 支持支架模式：节点可能是虚线框（isPlaceholder）
+        let sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
+        let targetNode = currentGraphData.nodes.find(n => n.id === link.target);
         
-        if (!sourceNode || !targetNode) return;
+        // 如果找不到源节点或目标节点，检查是否是占位符
+        if (!sourceNode && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
+            if (placeholder) {
+                sourceNode = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50,
+                    label: '待填入'
+                };
+            }
+        }
+        
+        if (!targetNode && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+            if (placeholder) {
+                targetNode = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50,
+                    label: '待填入'
+                };
+            }
+        }
+        
+        if (!sourceNode || !targetNode) {
+            console.warn(`redrawSingleLink: 找不到节点，source=${link.source}, target=${link.target}`);
+            return;
+        }
         
         // 计算折线路径（传入所有连线以检测双向连接）
         const pathData = calculatePolylinePath(link, currentGraphData.nodes, currentGraphData.links);
@@ -1260,13 +1402,29 @@ function redrawSingleLink(link) {
         if (pathData.isCurved && pathData.controlPoint) {
             // 圆弧：使用辅助函数计算箭头位置
             const controlPoint = pathData.controlPoint;
+            
+            // 检查是否为同级连接（同层连接）
+            const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
+            const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
+            const isSameLayer = sourceNode && targetNode && 
+                sourceNode.layer !== undefined && targetNode.layer !== undefined && 
+                sourceNode.layer === targetNode.layer;
+            
             const positions = calculateCurvedLinkPositions(
                 startX, startY, endX, endY, 
                 controlPoint, 
                 link.label || '双击编辑'
             );
-            arrowX = positions.arrowX;
-            arrowY = positions.arrowY;
+            
+            if (isSameLayer) {
+                // 同级连接：箭头位置应该在目标节点的连接点（endX, endY）
+                arrowX = endX;
+                arrowY = endY;
+            } else {
+                // 非同级连接：使用计算出的箭头位置
+                arrowX = positions.arrowX;
+                arrowY = positions.arrowY;
+            }
         } else if (waypoints.length > 2) {
             // 折线：箭头位置基于最后一段线段
             const lastSegmentStart = waypoints[waypoints.length - 2];
@@ -1408,7 +1566,8 @@ function updateLinkPosition(linkGroup, link) {
         let targetNode = currentGraphData.nodes.find(n => n.id === link.target);
         
         // 如果源节点或目标节点不存在，检查是否是占位符
-        if (!sourceNode && link.sourceRemoved && window.scaffoldPlaceholders) {
+        // 🔴 修复：不再依赖 link.sourceRemoved 标志，直接检查占位符
+        if (!sourceNode && window.scaffoldPlaceholders) {
             const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
             if (placeholder) {
                 // 创建临时节点对象用于绘制连线
@@ -1422,7 +1581,8 @@ function updateLinkPosition(linkGroup, link) {
             }
         }
         
-        if (!targetNode && link.targetRemoved && window.scaffoldPlaceholders) {
+        // 🔴 修复：不再依赖 link.targetRemoved 标志，直接检查占位符
+        if (!targetNode && window.scaffoldPlaceholders) {
             const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
             if (placeholder) {
                 // 创建临时节点对象用于绘制连线
@@ -1436,7 +1596,10 @@ function updateLinkPosition(linkGroup, link) {
             }
         }
         
-        if (!sourceNode || !targetNode) return;
+        if (!sourceNode || !targetNode) {
+            console.warn(`updateLinkPosition: 找不到节点，source=${link.source}, target=${link.target}`);
+            return;
+        }
 
         // 获取连接线、箭头和标签元素
         const line = linkGroup.querySelector('path:nth-child(1)'); // 连接线
@@ -1465,6 +1628,14 @@ function updateLinkPosition(linkGroup, link) {
         if (pathData.isCurved && pathData.controlPoint) {
             // 圆弧：使用辅助函数计算标签和箭头位置（断开处的中心）
             const controlPoint = pathData.controlPoint;
+            
+            // 检查是否为同级连接（同层连接）
+            const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
+            const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
+            const isSameLayer = sourceNode && targetNode && 
+                sourceNode.layer !== undefined && targetNode.layer !== undefined && 
+                sourceNode.layer === targetNode.layer;
+            
             const positions = calculateCurvedLinkPositions(
                 startX, startY, endX, endY, 
                 controlPoint, 
@@ -1472,8 +1643,16 @@ function updateLinkPosition(linkGroup, link) {
             );
             midX = positions.midX;
             midY = positions.midY;
-            arrowX = positions.arrowX;
-            arrowY = positions.arrowY;
+            
+            if (isSameLayer) {
+                // 同级连接：箭头位置应该在目标节点的连接点（endX, endY）
+                arrowX = endX;
+                arrowY = endY;
+            } else {
+                // 非同级连接：使用计算出的箭头位置
+                arrowX = positions.arrowX;
+                arrowY = positions.arrowY;
+            }
         } else if (waypoints.length === 3) {
             // 两段折线：使用中间点作为标签位置
             midX = waypoints[1].x;
@@ -1664,13 +1843,29 @@ function redrawAllLinks() {
             if (pathData.isCurved) {
                 // 圆弧：使用辅助函数计算箭头位置
                 const controlPoint = pathData.controlPoint || waypoints[1];
+                
+                // 检查是否为同级连接（同层连接）
+                const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
+                const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
+                const isSameLayer = sourceNode && targetNode && 
+                    sourceNode.layer !== undefined && targetNode.layer !== undefined && 
+                    sourceNode.layer === targetNode.layer;
+                
                 const positions = calculateCurvedLinkPositions(
                     startX, startY, endX, endY, 
                     controlPoint, 
                     link.label || '双击编辑'
                 );
-                arrowX = positions.arrowX;
-                arrowY = positions.arrowY;
+                
+                if (isSameLayer) {
+                    // 同级连接：箭头位置应该在目标节点的连接点（endX, endY）
+                    arrowX = endX;
+                    arrowY = endY;
+                } else {
+                    // 非同级连接：使用计算出的箭头位置
+                    arrowX = positions.arrowX;
+                    arrowY = positions.arrowY;
+                }
             } else if (waypoints.length > 2) {
                 // 折线：箭头位置基于最后一段线段
                 const lastSegmentStart = waypoints[waypoints.length - 2];
@@ -2173,8 +2368,22 @@ function showLoadingState() {
 
 // displayFocusQuestion
 function displayFocusQuestion() {
-        const svg = document.querySelector('.concept-graph');
-        if (!svg || !window.focusQuestion) return;
+        // 支持普通概念图和支架概念图
+        // 优先查找支架概念图（因为支架模式可能同时存在两个SVG）
+        let svg = document.querySelector('.scaffold-concept-graph');
+        if (!svg) {
+            svg = document.querySelector('.concept-graph');
+        }
+        if (!svg) {
+            console.warn('displayFocusQuestion: 找不到SVG元素');
+            return;
+        }
+        if (!window.focusQuestion) {
+            console.warn('displayFocusQuestion: window.focusQuestion 未设置');
+            return;
+        }
+        
+        console.log('displayFocusQuestion: 找到SVG，类名:', svg.className, '焦点问题:', window.focusQuestion);
         
         // 移除已存在的焦点问题框
         const existingFocusQuestion = svg.querySelector('#focus-question');

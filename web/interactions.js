@@ -136,8 +136,32 @@ function selectNode(nodeId) {
         allNodes.forEach(nodeGroup => {
             const rect = nodeGroup.querySelector('rect');
             if (rect) {
-                rect.setAttribute('stroke', '#fff');
-                rect.setAttribute('stroke-width', '2');
+                // 🔴 检查是否是虚线框节点（占位符），如果是则保持原样式
+                const nodeIdAttr = nodeGroup.getAttribute('data-node-id');
+                const node = currentGraphData && currentGraphData.nodes ? 
+                    currentGraphData.nodes.find(n => String(n.id) === String(nodeIdAttr)) : null;
+                
+                if (node && node.isPlaceholder) {
+                    // 虚线框节点保持原样式
+                    rect.setAttribute('stroke', '#667eea');
+                    rect.setAttribute('stroke-width', '2');
+                    rect.setAttribute('stroke-dasharray', '5,5');
+                } else if (node && node.isCorrect === true) {
+                    // 正确填入的节点保持绿色边框
+                    rect.setAttribute('stroke', '#28a745');
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                } else if (node && node.isCorrect === false) {
+                    // 错误填入的节点保持红色边框
+                    rect.setAttribute('stroke', '#dc3545');
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                } else {
+                    // 普通节点恢复白色边框
+                    rect.setAttribute('stroke', '#fff');
+                    rect.setAttribute('stroke-width', '2');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                }
             }
             // 移除之前节点的控制手柄
             removeNodeHandles(nodeGroup);
@@ -149,8 +173,20 @@ function selectNode(nodeId) {
         if (nodeGroup) {
             const rect = nodeGroup.querySelector('rect');
             if (rect) {
-                rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
-                rect.setAttribute('stroke-width', '3');
+                // 🔴 检查选中的节点是否是虚线框节点
+                const node = currentGraphData && currentGraphData.nodes ? 
+                    currentGraphData.nodes.find(n => String(n.id) === String(nodeId)) : null;
+                
+                if (node && node.isPlaceholder) {
+                    // 虚线框节点选中时加粗边框但保持虚线样式
+                    rect.setAttribute('stroke', '#ffd700');
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', '5,5');
+                } else {
+                    rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                }
             }
             
             // 为选中的节点添加控制手柄
@@ -172,8 +208,31 @@ function deselectNode() {
             if (nodeGroup) {
                 const rect = nodeGroup.querySelector('rect');
                 if (rect) {
-                    rect.setAttribute('stroke', '#fff');
-                    rect.setAttribute('stroke-width', '2');
+                    // 🔴 检查是否是虚线框节点（占位符），如果是则恢复虚线样式
+                    const node = currentGraphData && currentGraphData.nodes ? 
+                        currentGraphData.nodes.find(n => String(n.id) === String(selectedNodeId)) : null;
+                    
+                    if (node && node.isPlaceholder) {
+                        // 虚线框节点恢复原样式
+                        rect.setAttribute('stroke', '#667eea');
+                        rect.setAttribute('stroke-width', '2');
+                        rect.setAttribute('stroke-dasharray', '5,5');
+                    } else if (node && node.isCorrect === true) {
+                        // 正确填入的节点保持绿色边框
+                        rect.setAttribute('stroke', '#28a745');
+                        rect.setAttribute('stroke-width', '3');
+                        rect.setAttribute('stroke-dasharray', 'none');
+                    } else if (node && node.isCorrect === false) {
+                        // 错误填入的节点保持红色边框
+                        rect.setAttribute('stroke', '#dc3545');
+                        rect.setAttribute('stroke-width', '3');
+                        rect.setAttribute('stroke-dasharray', 'none');
+                    } else {
+                        // 普通节点恢复白色边框
+                        rect.setAttribute('stroke', '#fff');
+                        rect.setAttribute('stroke-width', '2');
+                        rect.setAttribute('stroke-dasharray', 'none');
+                    }
                 }
                 // 移除控制手柄
                 removeNodeHandles(nodeGroup);
@@ -202,8 +261,22 @@ function selectAllNodes() {
         allNodes.forEach(nodeGroup => {
             const rect = nodeGroup.querySelector('rect');
             if (rect) {
-                rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
-                rect.setAttribute('stroke-width', '3');
+                const nodeIdAttr = nodeGroup.getAttribute('data-node-id');
+                
+                // 🔴 检查是否是虚线框节点（占位符），如果是则保持虚线样式
+                const node = currentGraphData && currentGraphData.nodes ? 
+                    currentGraphData.nodes.find(n => String(n.id) === String(nodeIdAttr)) : null;
+                
+                if (node && node.isPlaceholder) {
+                    // 虚线框节点选中时加粗边框但保持虚线样式
+                    rect.setAttribute('stroke', '#ffd700');
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', '5,5');
+                } else {
+                    rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                }
             }
         });
         
@@ -1015,13 +1088,43 @@ function clearTemporaryNodeSelection() {
         allNodes.forEach(nodeGroup => {
             const rect = nodeGroup.querySelector('rect');
             if (rect) {
+                const nodeIdAttr = nodeGroup.getAttribute('data-node-id');
+                
+                // 🔴 检查是否是虚线框节点（占位符），如果是则保持原样式
+                const node = currentGraphData && currentGraphData.nodes ? 
+                    currentGraphData.nodes.find(n => String(n.id) === String(nodeIdAttr)) : null;
+                
                 // 恢复原始样式
-                if (selectedNodeId === nodeGroup.getAttribute('data-node-id')) {
-                    rect.setAttribute('stroke', '#ffd700'); // 保持选中状态
+                if (selectedNodeId === nodeIdAttr) {
+                    // 选中的节点
+                    if (node && node.isPlaceholder) {
+                        rect.setAttribute('stroke', '#ffd700');
+                        rect.setAttribute('stroke-width', '3');
+                        rect.setAttribute('stroke-dasharray', '5,5');
+                    } else {
+                        rect.setAttribute('stroke', '#ffd700'); // 保持选中状态
+                        rect.setAttribute('stroke-width', '3');
+                        rect.setAttribute('stroke-dasharray', 'none');
+                    }
+                } else if (node && node.isPlaceholder) {
+                    // 虚线框节点保持原样式
+                    rect.setAttribute('stroke', '#667eea');
+                    rect.setAttribute('stroke-width', '2');
+                    rect.setAttribute('stroke-dasharray', '5,5');
+                } else if (node && node.isCorrect === true) {
+                    // 正确填入的节点保持绿色边框
+                    rect.setAttribute('stroke', '#28a745');
                     rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
+                } else if (node && node.isCorrect === false) {
+                    // 错误填入的节点保持红色边框
+                    rect.setAttribute('stroke', '#dc3545');
+                    rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke-dasharray', 'none');
                 } else {
                     rect.setAttribute('stroke', '#fff');
                     rect.setAttribute('stroke-width', '2');
+                    rect.setAttribute('stroke-dasharray', 'none');
                 }
             }
         });

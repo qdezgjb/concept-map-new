@@ -147,7 +147,46 @@ function assignLayers(nodes, links) {
         levels.set(currentLevel, isolatedNodes);
     }
     
-    console.log(`层次分配完成，共${levels.size}层`);
+    // 🔴 验证：确保所有节点都被分配到层级
+    const allAssignedNodeIds = new Set();
+    levels.forEach((levelNodes, level) => {
+        levelNodes.forEach(node => allAssignedNodeIds.add(node.id));
+    });
+    const missingInLevels = nodes.filter(node => !allAssignedNodeIds.has(node.id));
+    if (missingInLevels.length > 0) {
+        console.error(`❌ 警告！有 ${missingInLevels.length} 个节点不在levels中:`, missingInLevels.map(n => `${n.label}(${n.id})`));
+        // 强制将这些节点添加到第1层
+        missingInLevels.forEach(node => {
+            console.log(`  强制将节点 "${node.label}" 添加到第1层`);
+            if (!levels.has(0)) {
+                levels.set(0, []);
+            }
+            levels.get(0).push(node);
+            if (node.layer === undefined || node.layer < 1) {
+                node.layer = 1;
+            }
+        });
+    }
+    
+    // 🔴 验证：确保所有节点都有有效的layer属性
+    const unassignedNodes = nodes.filter(node => node.layer === undefined || node.layer < 1);
+    if (unassignedNodes.length > 0) {
+        console.error(`❌ 警告！有 ${unassignedNodes.length} 个节点没有有效的layer属性:`, unassignedNodes.map(n => `${n.label}(${n.id})`));
+        // 强制将这些节点分配到第1层
+        unassignedNodes.forEach(node => {
+            console.log(`  强制将节点 "${node.label}" 的layer设置为1`);
+            node.layer = 1;
+            // 确保节点也在levels中
+            if (!allAssignedNodeIds.has(node.id)) {
+                if (!levels.has(0)) {
+                    levels.set(0, []);
+                }
+                levels.get(0).push(node);
+            }
+        });
+    }
+    
+    console.log(`层次分配完成，共${levels.size}层，总节点数: ${nodes.length}`);
     levels.forEach((levelNodes, level) => {
         console.log(`第${level}层(layer=${level + 1}): ${levelNodes.map(n => n.label).join(', ')}`);
     });
@@ -559,6 +598,16 @@ function assignCoordinates(nodes, orderedLevels, width, height) {
         levelNodes.forEach((node, index) => {
             const nodeWidth = nodeWidths[index];
             
+            // 🔴 如果节点有固定位置，保持其位置不变，跳过布局计算
+            if (node.fixedPosition && node.savedX !== undefined && node.savedY !== undefined) {
+                // 保持固定位置，但更新Y坐标以保持在同一层
+                node.x = node.savedX;
+                node.y = node.savedY; // 保持用户拖放的Y坐标，不强制到层级Y
+                console.log(`  节点 "${node.label}" 保持固定位置: (${node.x.toFixed(1)}, ${node.y.toFixed(1)})`);
+                // 不更新 currentX，因为固定位置的节点不影响其他节点的布局
+                return; // 在 forEach 中使用 return 跳过当前迭代
+            }
+            
             // 统一使用相同的间距，确保同一行节点间距一致
             // 当前节点的X坐标（节点中心）
             currentX += nodeWidth / 2;
@@ -788,8 +837,11 @@ function adjustViewBox(nodes, baseWidth, baseHeight) {
         'viewBox': { x: viewBoxStartX, y: viewBoxStartY, width: finalWidth, height: finalHeight }
     });
     
-    // 更新SVG的viewBox
-    const svg = document.querySelector('.concept-graph');
+    // 更新SVG的viewBox（支持普通概念图和支架概念图）
+    let svg = document.querySelector('.concept-graph');
+    if (!svg) {
+        svg = document.querySelector('.scaffold-concept-graph');
+    }
     if (svg) {
         svg.setAttribute('viewBox', `${viewBoxStartX} ${viewBoxStartY} ${finalWidth} ${finalHeight}`);
         console.log(`ViewBox已调整: ${viewBoxStartX} ${viewBoxStartY} ${finalWidth} ${finalHeight}`);
@@ -814,8 +866,11 @@ function applySugiyamaLayout(graphData) {
     const nodes = [...graphData.nodes];
     const links = [...graphData.links];
     
-    // 动态获取SVG容器的实际宽度
-    const svg = document.querySelector('.concept-graph');
+    // 动态获取SVG容器的实际宽度（支持普通概念图和支架概念图）
+    let svg = document.querySelector('.concept-graph');
+    if (!svg) {
+        svg = document.querySelector('.scaffold-concept-graph');
+    }
     let containerWidth = 1600;
     let containerHeight = 700; // 统一为700，与HTML和CSS保持一致
     
