@@ -437,7 +437,7 @@ function assignCoordinates(nodes, orderedLevels, width, height) {
     
     // 计算布局参数
     const horizontalMargin = 150; // 左右边距
-    const focusToLayer1Spacing = 30; // 焦点问题到第一层的间距（减小间距）
+    const focusToLayer1Spacing = 60; // 焦点问题到第一层的间距（增大间距）
     const minLayerSpacing = 220; // 最小层间距（220px，增大行间距）
     const minGapBetweenLayers = 50; // 相邻层节点之间的最小间隙（50px，增大行间距）
     
