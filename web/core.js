@@ -4819,17 +4819,31 @@ function resetView() {
         return;
     }
     
+    // 🔴 首先清除支架模式下的内容（如果存在）
+    clearPreviousConceptMap();
+    
     // 清除所有生成的内容
     currentGraphData = null;
     window.currentGraphData = null;
     
+    // 清除低支架模式相关的全局变量
+    window.lowScaffoldConcepts = null;
+    window.lowScaffoldRelations = null;
+    window.userBuiltNodes = null;
+    window.userBuiltLinks = null;
+    
     // 显示占位符
-    window.graphPlaceholder.style.display = 'flex';
+    if (window.graphPlaceholder) {
+        window.graphPlaceholder.style.display = 'flex';
+    }
     
     // 隐藏概念图展示区域
     const conceptMapDisplay = document.querySelector('.concept-map-display');
     if (conceptMapDisplay) {
         conceptMapDisplay.style.display = 'none';
+        // 确保移除所有支架模式相关的类
+        conceptMapDisplay.classList.remove('scaffold-mode');
+        conceptMapDisplay.classList.remove('low-scaffold-mode');
     }
     
     // 编辑工具栏现在在control-bar中，始终可见
@@ -4875,7 +4889,7 @@ function resetView() {
         graphCanvas.appendChild(svg);
     }
     
-    // 清空SVG画布内容
+    // 清空SVG画布内容（包括普通概念图和支架概念图）
     if (svg) {
         while (svg.firstChild) {
             svg.removeChild(svg.firstChild);
@@ -4891,6 +4905,38 @@ function resetView() {
         defaultText.setAttribute('fill', '#666');
         defaultText.textContent = '概念图将在这里显示';
         svg.appendChild(defaultText);
+    }
+    
+    // 🔴 清空支架模式下的 SVG（如果存在）
+    const scaffoldSvg = document.querySelector('.scaffold-concept-graph');
+    if (scaffoldSvg) {
+        while (scaffoldSvg.firstChild) {
+            scaffoldSvg.removeChild(scaffoldSvg.firstChild);
+        }
+    }
+    
+    // 🔴 清空专家图的 SVG（如果存在）
+    const expertSvg = document.querySelector('.expert-concept-graph');
+    if (expertSvg) {
+        while (expertSvg.firstChild) {
+            expertSvg.removeChild(expertSvg.firstChild);
+        }
+    }
+    
+    // 🔴 清空左侧待选概念和关系词列表（低支架模式）
+    const conceptsList = document.querySelector('.low-scaffold-concepts-list');
+    if (conceptsList) {
+        conceptsList.innerHTML = '';
+    }
+    const relationsList = document.querySelector('.low-scaffold-relations-list');
+    if (relationsList) {
+        relationsList.innerHTML = '';
+    }
+    
+    // 🔴 清空左侧待选概念列表（高支架模式）
+    const candidateList = document.querySelector('.candidate-nodes-list');
+    if (candidateList) {
+        candidateList.innerHTML = '';
     }
     
     // 清除焦点问题
