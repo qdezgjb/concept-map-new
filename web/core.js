@@ -1066,13 +1066,13 @@ function setupLowScaffoldLayout() {
     if (!scaffoldContainer) {
         scaffoldContainer = document.createElement('div');
         scaffoldContainer.className = 'scaffold-container low-scaffold-container';
-        scaffoldContainer.style.cssText = 'display: flex; width: 100%; min-height: 900px; gap: 20px; align-items: flex-start;';
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; min-height: 900px; gap: 20px; align-items: stretch;';
         
         conceptMapDisplay.innerHTML = '';
         conceptMapDisplay.appendChild(scaffoldContainer);
     } else {
         scaffoldContainer.classList.add('low-scaffold-container');
-        scaffoldContainer.style.cssText = 'display: flex; width: 100%; min-height: 900px; gap: 20px; align-items: flex-start;';
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; min-height: 900px; gap: 20px; align-items: stretch;';
         scaffoldContainer.innerHTML = '';
     }
     
@@ -1088,8 +1088,7 @@ function setupLowScaffoldLayout() {
         border-radius: 8px;
         padding: 15px;
         border: 1px solid #e9ecef;
-        align-self: flex-start;
-        max-height: calc(100vh - 200px);
+        min-height: 900px;
         overflow-y: auto;
     `;
     
@@ -1097,10 +1096,13 @@ function setupLowScaffoldLayout() {
     const conceptsArea = document.createElement('div');
     conceptsArea.className = 'low-scaffold-concepts-area';
     conceptsArea.style.cssText = `
+        flex: 1;
         background: white;
         border-radius: 6px;
         padding: 12px;
         border: 1px solid #dee2e6;
+        min-height: 200px;
+        overflow-y: auto;
     `;
     conceptsArea.innerHTML = `
         <h5 style="margin-bottom: 12px; color: #2c3e50; font-size: 14px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
@@ -1113,10 +1115,13 @@ function setupLowScaffoldLayout() {
     const relationsArea = document.createElement('div');
     relationsArea.className = 'low-scaffold-relations-area';
     relationsArea.style.cssText = `
+        flex: 1;
         background: white;
         border-radius: 6px;
         padding: 12px;
         border: 1px solid #dee2e6;
+        min-height: 200px;
+        overflow-y: auto;
     `;
     relationsArea.innerHTML = `
         <h5 style="margin-bottom: 12px; color: #2c3e50; font-size: 14px; border-bottom: 2px solid #28a745; padding-bottom: 8px;">
