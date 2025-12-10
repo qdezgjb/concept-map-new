@@ -1158,7 +1158,22 @@ function updateConnectedLinks(nodeId) {
  */
 function updateAggregatedLinkPosition(aggregateGroup, group, movedNodeId) {
     const nodeById = new Map(currentGraphData.nodes.map(n => [n.id, n]));
-    const sourceNode = nodeById.get(group.sourceId);
+    // 🔴 支持支架模式：源节点可能是占位符
+    let sourceNode = nodeById.get(group.sourceId);
+    if (!sourceNode && window.scaffoldPlaceholders) {
+        const placeholder = window.scaffoldPlaceholders.find(p => p.id === group.sourceId);
+        if (placeholder) {
+            sourceNode = {
+                id: placeholder.id,
+                x: placeholder.x || 0,
+                y: placeholder.y || 0,
+                width: placeholder.width || 100,
+                height: placeholder.height || 50,
+                label: '待填入',
+                layer: placeholder.layer
+            };
+        }
+    }
     if (!sourceNode) return;
     
     // 计算源节点尺寸
@@ -1170,7 +1185,22 @@ function updateAggregatedLinkPosition(aggregateGroup, group, movedNodeId) {
     
     // 计算所有目标节点的位置
     const targetNodes = group.links.map(link => {
-        const target = nodeById.get(link.target);
+        // 🔴 支持支架模式：目标节点可能是占位符
+        let target = nodeById.get(link.target);
+        if (!target && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+            if (placeholder) {
+                target = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50,
+                    label: '待填入',
+                    layer: placeholder.layer
+                };
+            }
+        }
         if (!target) return null;
         const targetDimensions = window.calculateNodeDimensions ? 
             window.calculateNodeDimensions(target.label || '', 70, 35, 14) : 
@@ -2863,10 +2893,29 @@ function detectAggregatedLinks(links) {
  * @param {Array} allLinks - 所有连线数组
  */
 function drawAggregatedLink(group, nodeById, allNodes, allLinks) {
-    const svg = document.querySelector('.concept-graph');
+    // 🔴 支持支架模式：优先查找 scaffold-concept-graph
+    let svg = document.querySelector('.scaffold-concept-graph');
+    if (!svg) {
+        svg = document.querySelector('.concept-graph');
+    }
     if (!svg) return;
     
-    const sourceNode = nodeById.get(group.sourceId);
+    // 🔴 支持支架模式：源节点可能是占位符
+    let sourceNode = nodeById.get(group.sourceId);
+    if (!sourceNode && window.scaffoldPlaceholders) {
+        const placeholder = window.scaffoldPlaceholders.find(p => p.id === group.sourceId);
+        if (placeholder) {
+            sourceNode = {
+                id: placeholder.id,
+                x: placeholder.x || 0,
+                y: placeholder.y || 0,
+                width: placeholder.width || 100,
+                height: placeholder.height || 50,
+                label: '待填入',
+                layer: placeholder.layer
+            };
+        }
+    }
     if (!sourceNode) return;
     
     // 计算源节点尺寸
@@ -2878,7 +2927,22 @@ function drawAggregatedLink(group, nodeById, allNodes, allLinks) {
     
     // 计算所有目标节点的位置
     const targetNodes = group.links.map(link => {
-        const target = nodeById.get(link.target);
+        // 🔴 支持支架模式：目标节点可能是占位符
+        let target = nodeById.get(link.target);
+        if (!target && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+            if (placeholder) {
+                target = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50,
+                    label: '待填入',
+                    layer: placeholder.layer
+                };
+            }
+        }
         if (!target) return null;
         const targetDimensions = window.calculateNodeDimensions ? 
             window.calculateNodeDimensions(target.label || '', 70, 35, 14) : 

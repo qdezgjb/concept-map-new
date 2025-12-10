@@ -2372,6 +2372,10 @@ function saveScaffoldUndoState(actionType, actionData) {
     const candidateNodesSnapshot = window.scaffoldCandidateNodes ? 
         JSON.parse(JSON.stringify(window.scaffoldCandidateNodes)) : [];
     
+    // 🔴 保存占位符状态（用于恢复连线）
+    const scaffoldPlaceholdersSnapshot = window.scaffoldPlaceholders ? 
+        JSON.parse(JSON.stringify(window.scaffoldPlaceholders)) : [];
+    
     // 保存待选节点DOM状态
     const candidateNodesDOMState = [];
     const candidateList = document.querySelector('.candidate-nodes-list');
@@ -2392,7 +2396,8 @@ function saveScaffoldUndoState(actionType, actionData) {
         actionData: actionData,
         graphData: graphDataSnapshot,
         candidateNodes: candidateNodesSnapshot,
-        candidateNodesDOMState: candidateNodesDOMState
+        candidateNodesDOMState: candidateNodesDOMState,
+        scaffoldPlaceholders: scaffoldPlaceholdersSnapshot // 🔴 保存占位符状态
     };
     
     window.scaffoldUndoStack.push(undoState);
@@ -2423,6 +2428,28 @@ function scaffoldUndo() {
     
     // 恢复待选节点列表
     window.scaffoldCandidateNodes = undoState.candidateNodes;
+    
+    // 🔴 恢复占位符状态（确保连线能正确绘制）
+    if (undoState.scaffoldPlaceholders) {
+        window.scaffoldPlaceholders = undoState.scaffoldPlaceholders;
+        console.log(`scaffoldUndo: 恢复占位符状态，共 ${window.scaffoldPlaceholders.length} 个`);
+    }
+    
+    // 🔴 同步更新占位符的坐标信息（从恢复的图数据中获取最新坐标）
+    if (window.scaffoldPlaceholders && window.currentGraphData && window.currentGraphData.nodes) {
+        window.scaffoldPlaceholders.forEach(placeholder => {
+            const nodeInGraph = window.currentGraphData.nodes.find(n => n.id === placeholder.id);
+            if (nodeInGraph) {
+                // 更新占位符的坐标信息
+                placeholder.x = nodeInGraph.x;
+                placeholder.y = nodeInGraph.y;
+                placeholder.width = nodeInGraph.width;
+                placeholder.height = nodeInGraph.height;
+                placeholder.layer = nodeInGraph.layer;
+            }
+        });
+        console.log('scaffoldUndo: 已同步占位符坐标信息');
+    }
     
     // 🔴 完全恢复待选节点到初始状态
     const candidateList = document.querySelector('.candidate-nodes-list');
