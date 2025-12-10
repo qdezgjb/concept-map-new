@@ -480,11 +480,11 @@ function assignCoordinates(nodes, orderedLevels, width, height) {
     layerSpacings.forEach(spacing => totalSpacing += spacing);
     const totalContentHeight = focusQuestionHeight + focusToLayer1Spacing + totalSpacing;
     
-    // 取消上下居中限制，整体向上移动
-    // 焦点问题框的Y坐标设置为5，紧贴上边界
-    // viewBox的Y起始位置设置为0，焦点问题框会显示在顶部
-    const focusQuestionY = 5; // 焦点问题的Y坐标，紧贴顶部（5px边距）
-    const topMargin = 5; // 上边距为5px
+    // 整体布局位置设置
+    // 焦点问题框的Y坐标设置为30，距离上边界有一定间距
+    // viewBox的Y起始位置设置为0，焦点问题框会显示在顶部区域
+    const focusQuestionY = 30; // 焦点问题的Y坐标，距离顶部30px
+    const topMargin = 30; // 上边距为30px
     const bottomMargin = 50; // 下边距固定为50px，不再居中
     
     // 计算第一层的Y坐标（相对于焦点问题框）
