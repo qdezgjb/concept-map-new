@@ -1096,12 +1096,12 @@ function setupLowScaffoldLayout() {
     const conceptsArea = document.createElement('div');
     conceptsArea.className = 'low-scaffold-concepts-area';
     conceptsArea.style.cssText = `
-        flex: 1;
+        flex: 2;
         background: white;
         border-radius: 6px;
         padding: 12px;
         border: 1px solid #dee2e6;
-        min-height: 200px;
+        min-height: 400px;
         overflow-y: auto;
     `;
     conceptsArea.innerHTML = `
@@ -1120,7 +1120,8 @@ function setupLowScaffoldLayout() {
         border-radius: 6px;
         padding: 12px;
         border: 1px solid #dee2e6;
-        min-height: 200px;
+        min-height: 150px;
+        max-height: 300px;
         overflow-y: auto;
     `;
     relationsArea.innerHTML = `
