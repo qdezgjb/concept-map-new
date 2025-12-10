@@ -2433,11 +2433,11 @@ function displayFocusQuestion() {
         }
         
         // 计算焦点问题框的尺寸和位置（考虑viewBox的偏移）
-        // 根据文字长度动态计算宽度，最大不超过viewBox宽度的75%
+        // 根据文字长度动态计算宽度，最大不超过viewBox宽度的90%
         const textLength = (window.focusQuestion || '').length;
-        const estimatedTextWidth = textLength * 28; // 估算文字宽度（每字约28px）
-        const maxFocusBoxWidth = viewBoxWidth * 0.75; // 最大宽度为viewBox的75%
-        const focusBoxWidth = Math.min(maxFocusBoxWidth, Math.max(500, estimatedTextWidth + 100)); // 文字宽度+左右边距
+        const estimatedTextWidth = textLength * 32; // 估算文字宽度（每字约32px）
+        const maxFocusBoxWidth = viewBoxWidth * 0.9; // 最大宽度为viewBox的90%
+        const focusBoxWidth = Math.min(maxFocusBoxWidth, Math.max(600, estimatedTextWidth + 150)); // 文字宽度+左右边距
         const focusBoxX = viewBoxX + (viewBoxWidth - focusBoxWidth) / 2; // 水平居中，考虑viewBox偏移
         
         // 创建焦点问题组
