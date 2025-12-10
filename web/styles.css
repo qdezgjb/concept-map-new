@@ -980,7 +980,12 @@ body {
     flex-direction: column;
     width: 100%;
     flex: 1;
-    min-height: 600px;
+    min-height: 800px;
+}
+
+/* 支架模式下的概念图展示区域 */
+.concept-map-display.scaffold-mode {
+    min-height: 900px;
 }
 
 /* 概念节点和关系连接列表区域样式 */

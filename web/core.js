@@ -868,7 +868,7 @@ function setupScaffoldLayout() {
     if (!scaffoldContainer) {
         scaffoldContainer = document.createElement('div');
         scaffoldContainer.className = 'scaffold-container';
-        scaffoldContainer.style.cssText = 'display: flex; width: 100%; height: 100%; gap: 20px;';
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; height: 100%; min-height: 900px; gap: 20px;';
         
         // 清空原有内容
         conceptMapDisplay.innerHTML = '';
@@ -911,9 +911,10 @@ function setupScaffoldLayout() {
             border: 1px solid #e9ecef;
             position: relative;
             overflow: auto;
+            min-height: 900px;
         `;
         graphArea.innerHTML = `
-            <svg width="100%" height="100%" class="scaffold-concept-graph" viewBox="0 0 2400 1200" style="min-height: 800px;">
+            <svg width="100%" height="100%" class="scaffold-concept-graph" viewBox="0 0 2400 1600" style="min-height: 900px;">
             </svg>
         `;
         scaffoldContainer.appendChild(graphArea);
