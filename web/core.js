@@ -2340,6 +2340,12 @@ function redrawWithoutLayout() {
             // 恢复原始类名
             svg.className.baseVal = originalClass;
             
+            // 🔴 重新显示焦点问题（因为 drawGraph 会清空 SVG）
+            if (typeof window.displayFocusQuestion === 'function' && window.focusQuestion) {
+                window.displayFocusQuestion();
+                console.log('redrawWithoutLayout: 已重新显示焦点问题');
+            }
+            
             console.log('redrawWithoutLayout: 支架模式渲染完成');
         }
     } else {
