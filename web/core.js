@@ -1096,13 +1096,10 @@ function setupLowScaffoldLayout() {
     const conceptsArea = document.createElement('div');
     conceptsArea.className = 'low-scaffold-concepts-area';
     conceptsArea.style.cssText = `
-        flex: 2;
         background: white;
         border-radius: 6px;
         padding: 12px;
         border: 1px solid #dee2e6;
-        min-height: 400px;
-        overflow-y: auto;
     `;
     conceptsArea.innerHTML = `
         <h5 style="margin-bottom: 12px; color: #2c3e50; font-size: 14px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
@@ -1121,7 +1118,6 @@ function setupLowScaffoldLayout() {
         padding: 12px;
         border: 1px solid #dee2e6;
         min-height: 150px;
-        max-height: 300px;
         overflow-y: auto;
     `;
     relationsArea.innerHTML = `
@@ -1369,6 +1365,28 @@ function displayLowScaffoldConcepts(concepts) {
         
         conceptsList.appendChild(layerContainer);
     });
+    
+    // 调整概念区域高度，使其刚好适应内容，不留多余空间
+    setTimeout(() => {
+        const conceptsArea = document.querySelector('.low-scaffold-concepts-area');
+        if (conceptsArea) {
+            // 获取整个区域的实际内容高度（包括标题和所有内容）
+            const titleHeight = conceptsArea.querySelector('h5')?.offsetHeight || 0;
+            const conceptsList = conceptsArea.querySelector('.low-scaffold-concepts-list');
+            if (conceptsList) {
+                // 使用 scrollHeight 获取完整内容高度（包括所有层级标题和概念）
+                const contentHeight = conceptsList.scrollHeight;
+                const padding = 24; // 上下 padding 12px * 2
+                const totalHeight = contentHeight + titleHeight + padding;
+                
+                // 设置高度为内容高度，不留多余空间
+                conceptsArea.style.height = `${totalHeight}px`;
+                conceptsArea.style.overflow = 'visible';
+                conceptsArea.style.flexShrink = '0'; // 防止被压缩
+                console.log(`概念区域高度已调整为: ${totalHeight}px (内容: ${contentHeight}px, 标题: ${titleHeight}px, 内边距: ${padding}px)`);
+            }
+        }
+    }, 100);
     
     console.log(`displayLowScaffoldConcepts: 成功显示 ${concepts.length} 个概念，共 ${sortedLayers.length} 个层级`);
 }
