@@ -1066,12 +1066,13 @@ function setupLowScaffoldLayout() {
     if (!scaffoldContainer) {
         scaffoldContainer = document.createElement('div');
         scaffoldContainer.className = 'scaffold-container low-scaffold-container';
-        scaffoldContainer.style.cssText = 'display: flex; width: 100%; height: 100%; min-height: 900px; gap: 20px;';
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; min-height: 900px; gap: 20px; align-items: flex-start;';
         
         conceptMapDisplay.innerHTML = '';
         conceptMapDisplay.appendChild(scaffoldContainer);
     } else {
         scaffoldContainer.classList.add('low-scaffold-container');
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; min-height: 900px; gap: 20px; align-items: flex-start;';
         scaffoldContainer.innerHTML = '';
     }
     
@@ -1087,15 +1088,15 @@ function setupLowScaffoldLayout() {
         border-radius: 8px;
         padding: 15px;
         border: 1px solid #e9ecef;
+        align-self: flex-start;
+        max-height: calc(100vh - 200px);
         overflow-y: auto;
-        max-height: 850px;
     `;
     
     // 待选概念区
     const conceptsArea = document.createElement('div');
     conceptsArea.className = 'low-scaffold-concepts-area';
     conceptsArea.style.cssText = `
-        flex: 1;
         background: white;
         border-radius: 6px;
         padding: 12px;
@@ -1112,7 +1113,6 @@ function setupLowScaffoldLayout() {
     const relationsArea = document.createElement('div');
     relationsArea.className = 'low-scaffold-relations-area';
     relationsArea.style.cssText = `
-        flex: 1;
         background: white;
         border-radius: 6px;
         padding: 12px;
