@@ -444,11 +444,11 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
     isGenerating = true;
     
     try {
-        // 设置焦点问题（用于显示）
-        window.focusQuestion = `焦点问题：${focusQuestion}`;
-        
-        // 清除之前的概念图内容
+        // 清除之前的概念图内容（必须在设置焦点问题之前）
         clearPreviousConceptMap();
+        
+        // 设置焦点问题（用于显示）- 必须在 clearPreviousConceptMap 之后
+        window.focusQuestion = `焦点问题：${focusQuestion}`;
         
         // 显示概念图展示区域
         const conceptMapDisplay = document.querySelector('.concept-map-display');
