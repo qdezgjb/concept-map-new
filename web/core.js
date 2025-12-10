@@ -1171,7 +1171,18 @@ function exportScaffoldConceptMap() {
             canvas.toBlob(function(blob) {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
-                link.download = `支架概念图_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.png`;
+                // 从焦点问题中提取实际内容（去掉"焦点问题："前缀）
+                let focusQuestionText = window.focusQuestion || '';
+                const prefixes = ['焦点问题：', '焦点问题:', 'Focus Question: ', 'Focus Question:'];
+                for (const prefix of prefixes) {
+                    if (focusQuestionText.startsWith(prefix)) {
+                        focusQuestionText = focusQuestionText.substring(prefix.length).trim();
+                        break;
+                    }
+                }
+                // 清理文件名中不允许的字符
+                focusQuestionText = focusQuestionText.replace(/[\\/:*?"<>|]/g, '_').substring(0, 50);
+                link.download = `支架概念图-${focusQuestionText || '未命名'}.png`;
                 link.href = url;
                 link.click();
                 URL.revokeObjectURL(url);
