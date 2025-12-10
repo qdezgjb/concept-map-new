@@ -961,6 +961,193 @@ function setupScaffoldLayout() {
             }
         });
     }
+    
+    // 显示导出支架图按钮
+    const exportScaffoldBtn = document.getElementById('exportScaffoldBtn');
+    if (exportScaffoldBtn) {
+        exportScaffoldBtn.style.display = 'inline-block';
+    }
+}
+
+/**
+ * 导出支架概念图（包含待完成的概念图和待选概念）
+ */
+function exportScaffoldConceptMap() {
+    console.log('开始导出支架概念图...');
+    
+    // 检查是否在支架模式
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (!conceptMapDisplay || !conceptMapDisplay.classList.contains('scaffold-mode')) {
+        showMessage('请先生成支架概念图', 'warning');
+        return;
+    }
+    
+    // 获取支架概念图 SVG
+    const scaffoldSvg = document.querySelector('.scaffold-concept-graph');
+    if (!scaffoldSvg) {
+        showMessage('找不到支架概念图', 'error');
+        return;
+    }
+    
+    // 获取待选概念
+    const candidateNodes = window.scaffoldCandidateNodes || [];
+    if (candidateNodes.length === 0) {
+        showMessage('没有待选概念', 'warning');
+    }
+    
+    showMessage('正在生成支架概念图，请稍候...', 'info');
+    
+    try {
+        // 克隆 SVG
+        const clonedSvg = scaffoldSvg.cloneNode(true);
+        
+        // 获取 SVG 尺寸
+        const svgRect = scaffoldSvg.getBoundingClientRect();
+        const viewBox = scaffoldSvg.getAttribute('viewBox') || '0 0 2400 1600';
+        const viewBoxParts = viewBox.split(' ').map(Number);
+        const svgWidth = viewBoxParts[2] || 2400;
+        const svgHeight = viewBoxParts[3] || 1600;
+        
+        // 计算待选概念区域的尺寸
+        const nodeWidth = 120;
+        const nodeHeight = 45;
+        const nodeGap = 20;
+        const nodesPerRow = Math.floor((svgWidth - 100) / (nodeWidth + nodeGap));
+        const rowCount = Math.ceil(candidateNodes.length / nodesPerRow);
+        const candidateAreaHeight = rowCount * (nodeHeight + nodeGap) + 80; // 80px 用于标题和边距
+        
+        // 创建新的 SVG，包含概念图和待选概念
+        const totalHeight = svgHeight + candidateAreaHeight;
+        
+        // 设置克隆 SVG 的属性
+        clonedSvg.setAttribute('width', svgWidth);
+        clonedSvg.setAttribute('height', totalHeight);
+        clonedSvg.setAttribute('viewBox', `0 0 ${svgWidth} ${totalHeight}`);
+        clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        
+        // 添加白色背景
+        const backgroundRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        backgroundRect.setAttribute('width', svgWidth);
+        backgroundRect.setAttribute('height', totalHeight);
+        backgroundRect.setAttribute('fill', 'white');
+        clonedSvg.insertBefore(backgroundRect, clonedSvg.firstChild);
+        
+        // 创建待选概念区域的分组
+        const candidateGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        candidateGroup.setAttribute('transform', `translate(0, ${svgHeight})`);
+        
+        // 添加分隔线
+        const separatorLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        separatorLine.setAttribute('x1', '50');
+        separatorLine.setAttribute('y1', '10');
+        separatorLine.setAttribute('x2', svgWidth - 50);
+        separatorLine.setAttribute('y2', '10');
+        separatorLine.setAttribute('stroke', '#667eea');
+        separatorLine.setAttribute('stroke-width', '2');
+        separatorLine.setAttribute('stroke-dasharray', '10,5');
+        candidateGroup.appendChild(separatorLine);
+        
+        // 添加标题
+        const titleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        titleText.setAttribute('x', svgWidth / 2);
+        titleText.setAttribute('y', '40');
+        titleText.setAttribute('text-anchor', 'middle');
+        titleText.setAttribute('font-size', '24');
+        titleText.setAttribute('font-weight', 'bold');
+        titleText.setAttribute('fill', '#2c3e50');
+        titleText.textContent = '待选概念';
+        candidateGroup.appendChild(titleText);
+        
+        // 绘制待选概念节点
+        const startY = 60;
+        const startX = 50;
+        
+        candidateNodes.forEach((node, index) => {
+            const row = Math.floor(index / nodesPerRow);
+            const col = index % nodesPerRow;
+            const x = startX + col * (nodeWidth + nodeGap);
+            const y = startY + row * (nodeHeight + nodeGap);
+            
+            // 创建节点组
+            const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            nodeGroup.setAttribute('transform', `translate(${x}, ${y})`);
+            
+            // 创建节点背景
+            const nodeRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            nodeRect.setAttribute('width', nodeWidth);
+            nodeRect.setAttribute('height', nodeHeight);
+            nodeRect.setAttribute('rx', '8');
+            nodeRect.setAttribute('fill', '#667eea');
+            nodeRect.setAttribute('stroke', '#5a6fd6');
+            nodeRect.setAttribute('stroke-width', '2');
+            nodeGroup.appendChild(nodeRect);
+            
+            // 创建节点文字
+            const nodeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            nodeText.setAttribute('x', nodeWidth / 2);
+            nodeText.setAttribute('y', nodeHeight / 2);
+            nodeText.setAttribute('text-anchor', 'middle');
+            nodeText.setAttribute('dominant-baseline', 'middle');
+            nodeText.setAttribute('font-size', '14');
+            nodeText.setAttribute('fill', 'white');
+            nodeText.setAttribute('font-weight', '500');
+            // 如果文字太长，截断并添加省略号
+            let label = node.label || node.id || '';
+            if (label.length > 8) {
+                label = label.substring(0, 7) + '...';
+            }
+            nodeText.textContent = label;
+            nodeGroup.appendChild(nodeText);
+            
+            candidateGroup.appendChild(nodeGroup);
+        });
+        
+        clonedSvg.appendChild(candidateGroup);
+        
+        // 将 SVG 转换为字符串
+        const svgData = new XMLSerializer().serializeToString(clonedSvg);
+        
+        // 创建 Image 对象
+        const img = new Image();
+        img.onload = function() {
+            // 创建 Canvas
+            const canvas = document.createElement('canvas');
+            const scale = 2; // 高清输出
+            canvas.width = svgWidth * scale;
+            canvas.height = totalHeight * scale;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, svgWidth, totalHeight);
+            ctx.drawImage(img, 0, 0, svgWidth, totalHeight);
+            
+            // 导出为 PNG
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = `支架概念图_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.png`;
+                link.href = url;
+                link.click();
+                URL.revokeObjectURL(url);
+                showMessage('支架概念图导出成功！', 'success');
+            }, 'image/png');
+        };
+        
+        img.onerror = function() {
+            console.error('图片加载失败');
+            showMessage('导出失败，请重试', 'error');
+        };
+        
+        // 加载 SVG 数据
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        img.src = svgUrl;
+        
+    } catch (error) {
+        console.error('导出支架概念图失败:', error);
+        showMessage('导出失败: ' + error.message, 'error');
+    }
 }
 
 /**
@@ -3688,6 +3875,12 @@ function clearPreviousConceptMap() {
     window.originalPlaceholderNodeIds = null; // 🔴 清除原始待填入节点ID列表
     window.scaffoldUndoStack = []; // 🔴 清空撤销栈
     
+    // 隐藏导出支架图按钮
+    const exportScaffoldBtn = document.getElementById('exportScaffoldBtn');
+    if (exportScaffoldBtn) {
+        exportScaffoldBtn.style.display = 'none';
+    }
+    
     // 清除焦点问题
     window.focusQuestion = null;
     
@@ -4104,6 +4297,15 @@ document.addEventListener('DOMContentLoaded', function() {
         window.downloadBtn.addEventListener('click', function() {
             console.log('下载图片按钮被点击');
             downloadConceptMapImage();
+        });
+    }
+    
+    // 导出支架概念图按钮事件
+    const exportScaffoldBtn = document.getElementById('exportScaffoldBtn');
+    if (exportScaffoldBtn) {
+        exportScaffoldBtn.addEventListener('click', function() {
+            console.log('导出支架概念图按钮被点击');
+            exportScaffoldConceptMap();
         });
     }
 
