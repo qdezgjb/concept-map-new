@@ -722,6 +722,1083 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
     }
 }
 
+//=============================================================================
+// 低支架概念图生成功能
+//=============================================================================
+
+/**
+ * 生成低支架概念图
+ * @param {string} focusQuestion - 焦点问题
+ */
+async function generateLowScaffoldConceptMap(focusQuestion) {
+    console.log('开始生成低支架概念图...', { focusQuestion });
+    
+    if (isGenerating) {
+        console.log('正在生成中，忽略重复请求');
+        return;
+    }
+    
+    isGenerating = true;
+    
+    try {
+        // 清除之前的概念图内容
+        clearPreviousConceptMap();
+        
+        // 设置焦点问题
+        window.focusQuestion = `焦点问题：${focusQuestion}`;
+        
+        // 显示概念图展示区域
+        const conceptMapDisplay = document.querySelector('.concept-map-display');
+        if (conceptMapDisplay) {
+            conceptMapDisplay.style.display = 'flex';
+            conceptMapDisplay.classList.add('scaffold-mode');
+            conceptMapDisplay.classList.add('low-scaffold-mode');
+        }
+        
+        // 隐藏占位符
+        if (window.graphPlaceholder) {
+            window.graphPlaceholder.style.display = 'none';
+        }
+        
+        // 显示加载状态
+        showLoadingAnimation();
+        
+        // 更新流程状态
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🗺️ 低支架概念图生成</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>正在生成相关内容...</p>
+                    <p style="margin: 5px 0;"><strong>焦点问题：</strong>${focusQuestion}</p>
+                    <p style="margin: 5px 0; color: #667eea;">✨ AI正在生成...</p>
+                </div>
+            `;
+        }
+        
+        // 步骤1：生成介绍文本
+        console.log('=== 步骤1：生成介绍文本 ===');
+        
+        const textDisplayArea = window.aiIntroText;
+        if (textDisplayArea) {
+            textDisplayArea.innerHTML = '<div class="streaming-text" style="padding: 10px; line-height: 1.8; color: #333; font-size: 14px;"></div>';
+        }
+        
+        const streamingDiv = textDisplayArea ? textDisplayArea.querySelector('.streaming-text') : null;
+        let introText = '';
+        
+        const introResult = await window.llmManager.generateIntroduction(
+            focusQuestion,
+            (chunk) => {
+                introText += chunk;
+                if (streamingDiv) {
+                    streamingDiv.textContent = introText;
+                }
+            }
+        );
+        
+        if (!introResult || !introResult.success) {
+            throw new Error(introResult?.message || '介绍文本生成失败');
+        }
+        
+        introText = introResult.text || introText;
+        console.log('介绍文本生成完成，长度:', introText.length);
+        
+        if (streamingDiv) {
+            streamingDiv.textContent = introText;
+        }
+        
+        // 步骤2：提取三元组
+        console.log('=== 步骤2：提取三元组 ===');
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🗺️ 低支架概念图生成</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>正在提取三元组...</p>
+                    <p style="margin: 5px 0;"><strong>焦点问题：</strong>${focusQuestion}</p>
+                </div>
+            `;
+        }
+        
+        const triplesResult = await window.llmManager.extractTriples(introText);
+        if (!triplesResult || !triplesResult.success || !triplesResult.triples) {
+            throw new Error(triplesResult?.message || '三元组提取失败');
+        }
+        
+        const triples = triplesResult.triples;
+        console.log('三元组提取完成，数量:', triples.length);
+        
+        // 步骤3：转换为概念图数据（作为专家图）
+        console.log('=== 步骤3：转换为概念图数据 ===');
+        const fullConceptData = window.convertTriplesToConceptData(triples);
+        
+        // 应用布局算法
+        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        let layoutAppliedData = fullConceptData;
+        
+        try {
+            if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+                layoutAppliedData = window.applySugiyamaLayout(fullConceptData);
+            } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
+                layoutAppliedData = window.applyForceDirectedLayout(fullConceptData, {
+                    width: 2400,
+                    height: 1200
+                });
+            }
+        } catch (error) {
+            console.error('布局算法应用失败:', error);
+        }
+        
+        // 保存完整概念图作为专家图
+        window.expertConceptMapData = JSON.parse(JSON.stringify(layoutAppliedData));
+        
+        // 步骤4：提取待选概念和待选关系词
+        console.log('=== 步骤4：提取待选概念和关系词 ===');
+        const { concepts, relations } = extractConceptsAndRelations(triples);
+        
+        // 保存待选概念和关系词
+        window.lowScaffoldConcepts = concepts;
+        window.lowScaffoldRelations = relations;
+        
+        // 初始化用户构建的概念图数据
+        window.currentGraphData = { nodes: [], links: [] };
+        window.userBuiltNodes = [];
+        window.userBuiltLinks = [];
+        
+        // 步骤5：设置低支架模式布局
+        console.log('=== 步骤5：设置低支架模式布局 ===');
+        setupLowScaffoldLayout();
+        
+        // 显示待选概念和关系词
+        displayLowScaffoldConcepts(concepts);
+        displayLowScaffoldRelations(relations);
+        
+        // 初始化低支架模式的交互
+        initLowScaffoldInteractions();
+        
+        // 显示焦点问题
+        if (typeof window.displayFocusQuestion === 'function' && window.focusQuestion) {
+            setTimeout(() => {
+                window.displayFocusQuestion();
+            }, 100);
+        }
+        
+        // 更新流程状态
+        if (window.processText) {
+            window.processText.innerHTML = `
+                <div style="padding: 15px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🗺️ 低支架概念图生成</h4>
+                    <p style="margin: 5px 0;"><strong>当前操作：</strong>请从左侧拖拽概念到画布构建概念图</p>
+                    <p style="margin: 5px 0;"><strong>焦点问题：</strong>${focusQuestion}</p>
+                    <p style="margin: 5px 0; color: #28a745;">✅ 已提取 ${concepts.length} 个概念，${relations.length} 个关系词</p>
+                </div>
+            `;
+        }
+        
+        // 恢复按钮状态
+        if (window.generateScaffoldConceptMapBtn) {
+            window.generateScaffoldConceptMapBtn.classList.remove('loading');
+            window.generateScaffoldConceptMapBtn.textContent = '生成支架概念图';
+            window.generateScaffoldConceptMapBtn.disabled = false;
+        }
+        
+        isGenerating = false;
+        showMessage('低支架概念图生成完成！请从左侧拖拽概念构建概念图', 'success');
+        
+    } catch (error) {
+        console.error('❌ 生成低支架概念图失败:', error);
+        
+        if (window.generateScaffoldConceptMapBtn) {
+            window.generateScaffoldConceptMapBtn.classList.remove('loading');
+            window.generateScaffoldConceptMapBtn.textContent = '生成支架概念图';
+            window.generateScaffoldConceptMapBtn.disabled = false;
+        }
+        
+        isGenerating = false;
+        showMessage('生成失败: ' + (error.message || '未知错误'), 'error');
+    }
+}
+
+/**
+ * 从三元组中提取概念和关系词
+ * @param {Array} triples - 三元组数组
+ * @returns {Object} { concepts, relations }
+ */
+function extractConceptsAndRelations(triples) {
+    const conceptSet = new Set();
+    const relationSet = new Set();
+    
+    triples.forEach(triple => {
+        if (triple.subject) conceptSet.add(triple.subject);
+        if (triple.object) conceptSet.add(triple.object);
+        if (triple.predicate) relationSet.add(triple.predicate);
+    });
+    
+    // 转换为数组并添加 ID
+    const concepts = Array.from(conceptSet).map((concept, index) => ({
+        id: `concept-${index}`,
+        label: concept,
+        used: false
+    }));
+    
+    const relations = Array.from(relationSet).map((relation, index) => ({
+        id: `relation-${index}`,
+        label: relation,
+        used: false
+    }));
+    
+    console.log(`提取到 ${concepts.length} 个概念，${relations.length} 个关系词`);
+    return { concepts, relations };
+}
+
+/**
+ * 设置低支架模式的布局（左侧两列 + 右侧画布）
+ */
+function setupLowScaffoldLayout() {
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (!conceptMapDisplay) return;
+    
+    // 创建低支架模式布局
+    let scaffoldContainer = conceptMapDisplay.querySelector('.scaffold-container');
+    if (!scaffoldContainer) {
+        scaffoldContainer = document.createElement('div');
+        scaffoldContainer.className = 'scaffold-container low-scaffold-container';
+        scaffoldContainer.style.cssText = 'display: flex; width: 100%; height: 100%; min-height: 900px; gap: 20px;';
+        
+        conceptMapDisplay.innerHTML = '';
+        conceptMapDisplay.appendChild(scaffoldContainer);
+    } else {
+        scaffoldContainer.classList.add('low-scaffold-container');
+        scaffoldContainer.innerHTML = '';
+    }
+    
+    // 左侧：待选概念和关系词区域（分两列）
+    const leftPanel = document.createElement('div');
+    leftPanel.className = 'low-scaffold-left-panel';
+    leftPanel.style.cssText = `
+        width: 350px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 15px;
+        border: 1px solid #e9ecef;
+        overflow-y: auto;
+        max-height: 850px;
+    `;
+    
+    // 待选概念区
+    const conceptsArea = document.createElement('div');
+    conceptsArea.className = 'low-scaffold-concepts-area';
+    conceptsArea.style.cssText = `
+        flex: 1;
+        background: white;
+        border-radius: 6px;
+        padding: 12px;
+        border: 1px solid #dee2e6;
+    `;
+    conceptsArea.innerHTML = `
+        <h5 style="margin-bottom: 12px; color: #2c3e50; font-size: 14px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
+            📦 待选概念
+        </h5>
+        <div class="low-scaffold-concepts-list" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+    `;
+    
+    // 待选关系词区
+    const relationsArea = document.createElement('div');
+    relationsArea.className = 'low-scaffold-relations-area';
+    relationsArea.style.cssText = `
+        flex: 1;
+        background: white;
+        border-radius: 6px;
+        padding: 12px;
+        border: 1px solid #dee2e6;
+    `;
+    relationsArea.innerHTML = `
+        <h5 style="margin-bottom: 12px; color: #2c3e50; font-size: 14px; border-bottom: 2px solid #28a745; padding-bottom: 8px;">
+            🔗 待选关系词
+        </h5>
+        <div class="low-scaffold-relations-list" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+    `;
+    
+    // 操作按钮区
+    const buttonsArea = document.createElement('div');
+    buttonsArea.className = 'low-scaffold-buttons-area';
+    buttonsArea.style.cssText = `
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #dee2e6;
+    `;
+    buttonsArea.innerHTML = `
+        <button id="showExpertMapBtn" class="btn btn-secondary" style="width: 100%;">
+            📊 展示专家图
+        </button>
+        <button id="compareWithExpertBtn" class="btn btn-outline" style="width: 100%;">
+            🔍 与专家图比较
+        </button>
+    `;
+    
+    leftPanel.appendChild(conceptsArea);
+    leftPanel.appendChild(relationsArea);
+    leftPanel.appendChild(buttonsArea);
+    scaffoldContainer.appendChild(leftPanel);
+    
+    // 右侧：空白画布区域
+    const graphArea = document.createElement('div');
+    graphArea.className = 'scaffold-graph-area low-scaffold-graph-area';
+    graphArea.style.cssText = `
+        flex: 1;
+        background: white;
+        border-radius: 8px;
+        border: 2px dashed #dee2e6;
+        position: relative;
+        overflow: auto;
+        min-height: 900px;
+    `;
+    graphArea.innerHTML = `
+        <div class="low-scaffold-canvas-hint" style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #adb5bd;
+            pointer-events: none;
+        ">
+            <div style="font-size: 48px; margin-bottom: 15px;">📝</div>
+            <div style="font-size: 16px;">拖拽左侧概念到此处创建节点</div>
+            <div style="font-size: 14px; margin-top: 8px;">点击两个节点可以创建连线</div>
+        </div>
+        <svg width="100%" height="100%" class="scaffold-concept-graph low-scaffold-svg" viewBox="0 0 2400 1600" style="min-height: 900px;">
+        </svg>
+    `;
+    scaffoldContainer.appendChild(graphArea);
+    
+    // 专家图展示区域（初始隐藏）
+    let expertMapArea = conceptMapDisplay.querySelector('.expert-map-area');
+    if (!expertMapArea) {
+        expertMapArea = document.createElement('div');
+        expertMapArea.className = 'expert-map-area';
+        expertMapArea.style.cssText = `
+            width: 100%;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            display: none;
+        `;
+        expertMapArea.innerHTML = `
+            <h4 style="margin-bottom: 15px; color: #2c3e50;">专家图（完整概念图）</h4>
+            <svg width="100%" height="100%" class="expert-concept-graph" viewBox="0 0 2400 1200" style="min-height: 600px;">
+            </svg>
+        `;
+        conceptMapDisplay.appendChild(expertMapArea);
+    }
+    
+    // 绑定按钮事件
+    bindLowScaffoldButtonEvents(leftPanel, expertMapArea);
+}
+
+/**
+ * 绑定低支架模式的按钮事件
+ */
+function bindLowScaffoldButtonEvents(leftPanel, expertMapArea) {
+    // 展示专家图按钮
+    const showExpertBtn = leftPanel.querySelector('#showExpertMapBtn');
+    if (showExpertBtn && !showExpertBtn.dataset.bound) {
+        showExpertBtn.dataset.bound = 'true';
+        showExpertBtn.addEventListener('click', function() {
+            const isVisible = expertMapArea.style.display !== 'none';
+            if (isVisible) {
+                expertMapArea.style.display = 'none';
+                this.textContent = '📊 展示专家图';
+            } else {
+                expertMapArea.style.display = 'block';
+                this.textContent = '📊 隐藏专家图';
+                if (window.expertConceptMapData) {
+                    displayExpertConceptMap(window.expertConceptMapData);
+                }
+            }
+        });
+    }
+    
+    // 与专家图比较按钮
+    const compareBtn = leftPanel.querySelector('#compareWithExpertBtn');
+    if (compareBtn && !compareBtn.dataset.bound) {
+        compareBtn.dataset.bound = 'true';
+        compareBtn.addEventListener('click', function() {
+            showMessage('与专家图比较功能即将推出', 'info');
+            // TODO: 实现比较功能
+        });
+    }
+}
+
+/**
+ * 显示待选概念列表
+ */
+function displayLowScaffoldConcepts(concepts) {
+    const conceptsList = document.querySelector('.low-scaffold-concepts-list');
+    if (!conceptsList) return;
+    
+    conceptsList.innerHTML = '';
+    
+    concepts.forEach(concept => {
+        const item = document.createElement('div');
+        item.className = 'low-scaffold-concept-item';
+        item.setAttribute('data-concept-id', concept.id);
+        item.setAttribute('data-concept-label', concept.label);
+        item.draggable = true;
+        item.style.cssText = `
+            padding: 8px 12px;
+            background: #667eea;
+            color: white;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: grab;
+            transition: all 0.2s;
+            user-select: none;
+        `;
+        item.textContent = concept.label;
+        
+        // 拖拽事件
+        item.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                type: 'concept',
+                id: concept.id,
+                label: concept.label
+            }));
+            e.dataTransfer.effectAllowed = 'copy';
+            this.style.opacity = '0.5';
+        });
+        
+        item.addEventListener('dragend', function() {
+            this.style.opacity = '1';
+        });
+        
+        // 鼠标悬停效果
+        item.addEventListener('mouseenter', function() {
+            if (!this.classList.contains('used')) {
+                this.style.transform = 'scale(1.05)';
+                this.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.4)';
+            }
+        });
+        
+        item.addEventListener('mouseleave', function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = 'none';
+        });
+        
+        conceptsList.appendChild(item);
+    });
+}
+
+/**
+ * 显示待选关系词列表
+ */
+function displayLowScaffoldRelations(relations) {
+    const relationsList = document.querySelector('.low-scaffold-relations-list');
+    if (!relationsList) return;
+    
+    relationsList.innerHTML = '';
+    
+    relations.forEach(relation => {
+        const item = document.createElement('div');
+        item.className = 'low-scaffold-relation-item';
+        item.setAttribute('data-relation-id', relation.id);
+        item.setAttribute('data-relation-label', relation.label);
+        item.draggable = true;
+        item.style.cssText = `
+            padding: 6px 10px;
+            background: #28a745;
+            color: white;
+            border-radius: 12px;
+            font-size: 12px;
+            cursor: grab;
+            transition: all 0.2s;
+            user-select: none;
+        `;
+        item.textContent = relation.label;
+        
+        // 拖拽事件
+        item.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                type: 'relation',
+                id: relation.id,
+                label: relation.label
+            }));
+            e.dataTransfer.effectAllowed = 'copy';
+            this.style.opacity = '0.5';
+        });
+        
+        item.addEventListener('dragend', function() {
+            this.style.opacity = '1';
+        });
+        
+        // 鼠标悬停效果
+        item.addEventListener('mouseenter', function() {
+            if (!this.classList.contains('used')) {
+                this.style.transform = 'scale(1.05)';
+                this.style.boxShadow = '0 2px 8px rgba(40, 167, 69, 0.4)';
+            }
+        });
+        
+        item.addEventListener('mouseleave', function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = 'none';
+        });
+        
+        relationsList.appendChild(item);
+    });
+}
+
+/**
+ * 初始化低支架模式的交互
+ */
+function initLowScaffoldInteractions() {
+    const graphArea = document.querySelector('.low-scaffold-graph-area');
+    const svg = document.querySelector('.low-scaffold-svg');
+    if (!graphArea || !svg) return;
+    
+    // 用于连线的状态
+    window.lowScaffoldLinkState = {
+        isLinking: false,
+        sourceNodeId: null,
+        tempLine: null
+    };
+    
+    // 拖放概念到画布
+    graphArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        this.style.borderColor = '#667eea';
+        this.style.background = 'rgba(102, 126, 234, 0.05)';
+    });
+    
+    graphArea.addEventListener('dragleave', function(e) {
+        this.style.borderColor = '#dee2e6';
+        this.style.background = 'white';
+    });
+    
+    graphArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#dee2e6';
+        this.style.background = 'white';
+        
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            
+            if (data.type === 'concept') {
+                // 计算放置位置（转换为 SVG 坐标）
+                const rect = svg.getBoundingClientRect();
+                const viewBox = svg.viewBox.baseVal;
+                const scaleX = viewBox.width / rect.width;
+                const scaleY = viewBox.height / rect.height;
+                
+                const x = (e.clientX - rect.left) * scaleX + viewBox.x;
+                const y = (e.clientY - rect.top) * scaleY + viewBox.y;
+                
+                // 创建节点
+                addLowScaffoldNode(data.id, data.label, x, y);
+                
+                // 隐藏提示
+                const hint = graphArea.querySelector('.low-scaffold-canvas-hint');
+                if (hint) hint.style.display = 'none';
+            } else if (data.type === 'relation') {
+                // 关系词需要放到连线上，这里暂时提示
+                showMessage('请先创建连线，再将关系词拖拽到连线上', 'info');
+            }
+        } catch (err) {
+            console.error('拖放处理失败:', err);
+        }
+    });
+    
+    // SVG 点击事件（用于取消连线状态）
+    svg.addEventListener('click', function(e) {
+        if (e.target === svg && window.lowScaffoldLinkState.isLinking) {
+            cancelLowScaffoldLinking();
+        }
+    });
+}
+
+/**
+ * 在画布上添加节点
+ */
+function addLowScaffoldNode(conceptId, label, x, y) {
+    const svg = document.querySelector('.low-scaffold-svg');
+    if (!svg) return;
+    
+    // 检查节点是否已添加
+    const existingNode = window.currentGraphData.nodes.find(n => n.originalConceptId === conceptId);
+    if (existingNode) {
+        showMessage('该概念已添加到画布', 'warning');
+        return;
+    }
+    
+    // 生成节点ID
+    const nodeId = `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // 计算节点尺寸
+    const dimensions = window.calculateNodeDimensions ? 
+        window.calculateNodeDimensions(label, 70, 35, 14) : 
+        { width: Math.max(70, label.length * 14 + 30), height: 35 };
+    
+    // 添加到数据
+    const newNode = {
+        id: nodeId,
+        label: label,
+        x: x,
+        y: y,
+        width: dimensions.width,
+        height: dimensions.height,
+        originalConceptId: conceptId
+    };
+    
+    window.currentGraphData.nodes.push(newNode);
+    window.userBuiltNodes.push(newNode);
+    
+    // 创建 SVG 节点
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('data-node-id', nodeId);
+    g.setAttribute('class', 'low-scaffold-node');
+    g.style.cursor = 'pointer';
+    
+    // 节点矩形
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', x - dimensions.width / 2);
+    rect.setAttribute('y', y - dimensions.height / 2);
+    rect.setAttribute('width', dimensions.width);
+    rect.setAttribute('height', dimensions.height);
+    rect.setAttribute('rx', 8);
+    rect.setAttribute('fill', '#667eea');
+    rect.setAttribute('stroke', '#5a67d8');
+    rect.setAttribute('stroke-width', '2');
+    
+    // 节点文本
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', x);
+    text.setAttribute('y', y + 5);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', 'white');
+    text.setAttribute('font-size', '14');
+    text.setAttribute('font-weight', '500');
+    text.textContent = label;
+    
+    g.appendChild(rect);
+    g.appendChild(text);
+    svg.appendChild(g);
+    
+    // 绑定节点事件
+    bindLowScaffoldNodeEvents(g, newNode);
+    
+    // 标记概念为已使用
+    markConceptAsUsed(conceptId);
+    
+    console.log(`添加节点: ${label} at (${x}, ${y})`);
+}
+
+/**
+ * 绑定低支架节点的交互事件
+ */
+function bindLowScaffoldNodeEvents(nodeGroup, nodeData) {
+    let isDragging = false;
+    let startX, startY, originalX, originalY;
+    
+    // 点击事件 - 用于创建连线
+    nodeGroup.addEventListener('click', function(e) {
+        e.stopPropagation();
+        
+        if (window.lowScaffoldLinkState.isLinking) {
+            // 第二次点击 - 创建连线
+            if (window.lowScaffoldLinkState.sourceNodeId !== nodeData.id) {
+                createLowScaffoldLink(window.lowScaffoldLinkState.sourceNodeId, nodeData.id);
+            }
+            cancelLowScaffoldLinking();
+        } else {
+            // 第一次点击 - 开始连线
+            startLowScaffoldLinking(nodeData.id);
+        }
+    });
+    
+    // 拖拽事件
+    nodeGroup.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return; // 只响应左键
+        
+        isDragging = true;
+        const svg = document.querySelector('.low-scaffold-svg');
+        const rect = svg.getBoundingClientRect();
+        const viewBox = svg.viewBox.baseVal;
+        const scaleX = viewBox.width / rect.width;
+        const scaleY = viewBox.height / rect.height;
+        
+        startX = e.clientX;
+        startY = e.clientY;
+        originalX = nodeData.x;
+        originalY = nodeData.y;
+        
+        nodeGroup.style.cursor = 'grabbing';
+        
+        const onMouseMove = function(e) {
+            if (!isDragging) return;
+            
+            const dx = (e.clientX - startX) * scaleX;
+            const dy = (e.clientY - startY) * scaleY;
+            
+            nodeData.x = originalX + dx;
+            nodeData.y = originalY + dy;
+            
+            // 更新节点位置
+            const rectEl = nodeGroup.querySelector('rect');
+            const textEl = nodeGroup.querySelector('text');
+            if (rectEl) {
+                rectEl.setAttribute('x', nodeData.x - nodeData.width / 2);
+                rectEl.setAttribute('y', nodeData.y - nodeData.height / 2);
+            }
+            if (textEl) {
+                textEl.setAttribute('x', nodeData.x);
+                textEl.setAttribute('y', nodeData.y + 5);
+            }
+            
+            // 更新连接的连线
+            updateLowScaffoldLinks(nodeData.id);
+        };
+        
+        const onMouseUp = function() {
+            isDragging = false;
+            nodeGroup.style.cursor = 'pointer';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+    
+    // 鼠标悬停效果
+    nodeGroup.addEventListener('mouseenter', function() {
+        const rect = nodeGroup.querySelector('rect');
+        if (rect) {
+            rect.setAttribute('stroke-width', '3');
+            rect.setAttribute('stroke', '#4c51bf');
+        }
+    });
+    
+    nodeGroup.addEventListener('mouseleave', function() {
+        const rect = nodeGroup.querySelector('rect');
+        if (rect) {
+            rect.setAttribute('stroke-width', '2');
+            rect.setAttribute('stroke', '#5a67d8');
+        }
+    });
+}
+
+/**
+ * 开始连线
+ */
+function startLowScaffoldLinking(sourceNodeId) {
+    window.lowScaffoldLinkState.isLinking = true;
+    window.lowScaffoldLinkState.sourceNodeId = sourceNodeId;
+    
+    // 高亮源节点
+    const svg = document.querySelector('.low-scaffold-svg');
+    const sourceGroup = svg.querySelector(`g[data-node-id="${sourceNodeId}"]`);
+    if (sourceGroup) {
+        const rect = sourceGroup.querySelector('rect');
+        if (rect) {
+            rect.setAttribute('stroke', '#f59e0b');
+            rect.setAttribute('stroke-width', '3');
+        }
+    }
+    
+    showMessage('请点击另一个节点来创建连线', 'info');
+}
+
+/**
+ * 取消连线
+ */
+function cancelLowScaffoldLinking() {
+    if (window.lowScaffoldLinkState.sourceNodeId) {
+        const svg = document.querySelector('.low-scaffold-svg');
+        const sourceGroup = svg.querySelector(`g[data-node-id="${window.lowScaffoldLinkState.sourceNodeId}"]`);
+        if (sourceGroup) {
+            const rect = sourceGroup.querySelector('rect');
+            if (rect) {
+                rect.setAttribute('stroke', '#5a67d8');
+                rect.setAttribute('stroke-width', '2');
+            }
+        }
+    }
+    
+    window.lowScaffoldLinkState.isLinking = false;
+    window.lowScaffoldLinkState.sourceNodeId = null;
+}
+
+/**
+ * 创建连线
+ */
+function createLowScaffoldLink(sourceId, targetId) {
+    const svg = document.querySelector('.low-scaffold-svg');
+    if (!svg) return;
+    
+    // 检查连线是否已存在
+    const existingLink = window.currentGraphData.links.find(
+        l => (l.source === sourceId && l.target === targetId) ||
+             (l.source === targetId && l.target === sourceId)
+    );
+    if (existingLink) {
+        showMessage('这两个节点之间已有连线', 'warning');
+        return;
+    }
+    
+    const sourceNode = window.currentGraphData.nodes.find(n => n.id === sourceId);
+    const targetNode = window.currentGraphData.nodes.find(n => n.id === targetId);
+    if (!sourceNode || !targetNode) return;
+    
+    // 生成连线ID
+    const linkId = `link-${sourceId}-${targetId}`;
+    
+    // 添加到数据
+    const newLink = {
+        id: linkId,
+        source: sourceId,
+        target: targetId,
+        label: '双击编辑'
+    };
+    
+    window.currentGraphData.links.push(newLink);
+    window.userBuiltLinks.push(newLink);
+    
+    // 绘制连线
+    drawLowScaffoldLink(newLink, sourceNode, targetNode);
+    
+    console.log(`创建连线: ${sourceNode.label} -> ${targetNode.label}`);
+    showMessage('连线已创建，可拖拽关系词到连线上', 'success');
+}
+
+/**
+ * 绘制连线
+ */
+function drawLowScaffoldLink(link, sourceNode, targetNode) {
+    const svg = document.querySelector('.low-scaffold-svg');
+    if (!svg) return;
+    
+    const linkGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    linkGroup.setAttribute('data-link-id', link.id);
+    linkGroup.setAttribute('class', 'low-scaffold-link');
+    
+    // 计算连线端点
+    const startX = sourceNode.x;
+    const startY = sourceNode.y + sourceNode.height / 2;
+    const endX = targetNode.x;
+    const endY = targetNode.y - targetNode.height / 2;
+    
+    // 连线
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', startX);
+    line.setAttribute('y1', startY);
+    line.setAttribute('x2', endX);
+    line.setAttribute('y2', endY);
+    line.setAttribute('stroke', '#aaa');
+    line.setAttribute('stroke-width', '2');
+    
+    // 箭头
+    const angle = Math.atan2(endY - startY, endX - startX);
+    const arrowLength = 10;
+    const arrowWidth = 6;
+    const arrowX = endX;
+    const arrowY = endY;
+    
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const arrowAngle1 = angle + Math.PI / 6;
+    const arrowAngle2 = angle - Math.PI / 6;
+    const arrowPath = `M ${arrowX} ${arrowY} 
+                       L ${arrowX - arrowLength * Math.cos(arrowAngle1)} ${arrowY - arrowLength * Math.sin(arrowAngle1)} 
+                       L ${arrowX - arrowLength * Math.cos(arrowAngle2)} ${arrowY - arrowLength * Math.sin(arrowAngle2)} Z`;
+    arrow.setAttribute('d', arrowPath);
+    arrow.setAttribute('fill', '#aaa');
+    
+    // 连线标签
+    const midX = (startX + endX) / 2;
+    const midY = (startY + endY) / 2;
+    
+    const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    labelText.setAttribute('x', midX);
+    labelText.setAttribute('y', midY - 5);
+    labelText.setAttribute('text-anchor', 'middle');
+    labelText.setAttribute('font-size', '12');
+    labelText.setAttribute('fill', '#666');
+    labelText.setAttribute('class', 'link-label');
+    labelText.textContent = link.label;
+    
+    linkGroup.appendChild(line);
+    linkGroup.appendChild(arrow);
+    linkGroup.appendChild(labelText);
+    
+    // 插入到节点之前（确保连线在节点下层）
+    const firstNode = svg.querySelector('.low-scaffold-node');
+    if (firstNode) {
+        svg.insertBefore(linkGroup, firstNode);
+    } else {
+        svg.appendChild(linkGroup);
+    }
+    
+    // 绑定连线事件
+    bindLowScaffoldLinkEvents(linkGroup, link);
+}
+
+/**
+ * 绑定连线事件
+ */
+function bindLowScaffoldLinkEvents(linkGroup, link) {
+    // 允许关系词拖放到连线上
+    linkGroup.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const line = linkGroup.querySelector('line');
+        if (line) {
+            line.setAttribute('stroke', '#28a745');
+            line.setAttribute('stroke-width', '3');
+        }
+    });
+    
+    linkGroup.addEventListener('dragleave', function() {
+        const line = linkGroup.querySelector('line');
+        if (line) {
+            line.setAttribute('stroke', '#aaa');
+            line.setAttribute('stroke-width', '2');
+        }
+    });
+    
+    linkGroup.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const line = linkGroup.querySelector('line');
+        if (line) {
+            line.setAttribute('stroke', '#aaa');
+            line.setAttribute('stroke-width', '2');
+        }
+        
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            if (data.type === 'relation') {
+                // 更新连线标签
+                link.label = data.label;
+                const labelText = linkGroup.querySelector('.link-label');
+                if (labelText) {
+                    labelText.textContent = data.label;
+                }
+                
+                // 标记关系词为已使用
+                markRelationAsUsed(data.id);
+                
+                showMessage(`已将关系词"${data.label}"添加到连线`, 'success');
+            }
+        } catch (err) {
+            console.error('关系词拖放处理失败:', err);
+        }
+    });
+    
+    // 双击编辑标签
+    linkGroup.addEventListener('dblclick', function() {
+        const newLabel = prompt('请输入连接词:', link.label);
+        if (newLabel && newLabel.trim()) {
+            link.label = newLabel.trim();
+            const labelText = linkGroup.querySelector('.link-label');
+            if (labelText) {
+                labelText.textContent = newLabel.trim();
+            }
+        }
+    });
+}
+
+/**
+ * 更新与节点连接的所有连线
+ */
+function updateLowScaffoldLinks(nodeId) {
+    const svg = document.querySelector('.low-scaffold-svg');
+    if (!svg) return;
+    
+    window.currentGraphData.links.forEach(link => {
+        if (link.source === nodeId || link.target === nodeId) {
+            const sourceNode = window.currentGraphData.nodes.find(n => n.id === link.source);
+            const targetNode = window.currentGraphData.nodes.find(n => n.id === link.target);
+            if (!sourceNode || !targetNode) return;
+            
+            const linkGroup = svg.querySelector(`g[data-link-id="${link.id}"]`);
+            if (!linkGroup) return;
+            
+            const startX = sourceNode.x;
+            const startY = sourceNode.y + sourceNode.height / 2;
+            const endX = targetNode.x;
+            const endY = targetNode.y - targetNode.height / 2;
+            
+            // 更新连线
+            const line = linkGroup.querySelector('line');
+            if (line) {
+                line.setAttribute('x1', startX);
+                line.setAttribute('y1', startY);
+                line.setAttribute('x2', endX);
+                line.setAttribute('y2', endY);
+            }
+            
+            // 更新箭头
+            const angle = Math.atan2(endY - startY, endX - startX);
+            const arrowLength = 10;
+            const arrow = linkGroup.querySelector('path');
+            if (arrow) {
+                const arrowAngle1 = angle + Math.PI / 6;
+                const arrowAngle2 = angle - Math.PI / 6;
+                const arrowPath = `M ${endX} ${endY} 
+                                   L ${endX - arrowLength * Math.cos(arrowAngle1)} ${endY - arrowLength * Math.sin(arrowAngle1)} 
+                                   L ${endX - arrowLength * Math.cos(arrowAngle2)} ${endY - arrowLength * Math.sin(arrowAngle2)} Z`;
+                arrow.setAttribute('d', arrowPath);
+            }
+            
+            // 更新标签位置
+            const labelText = linkGroup.querySelector('.link-label');
+            if (labelText) {
+                labelText.setAttribute('x', (startX + endX) / 2);
+                labelText.setAttribute('y', (startY + endY) / 2 - 5);
+            }
+        }
+    });
+}
+
+/**
+ * 标记概念为已使用
+ */
+function markConceptAsUsed(conceptId) {
+    const conceptItem = document.querySelector(`.low-scaffold-concept-item[data-concept-id="${conceptId}"]`);
+    if (conceptItem) {
+        conceptItem.classList.add('used');
+        conceptItem.style.background = '#adb5bd';
+        conceptItem.style.cursor = 'default';
+        conceptItem.draggable = false;
+    }
+    
+    // 更新数据
+    const concept = window.lowScaffoldConcepts?.find(c => c.id === conceptId);
+    if (concept) {
+        concept.used = true;
+    }
+}
+
+/**
+ * 标记关系词为已使用
+ */
+function markRelationAsUsed(relationId) {
+    const relationItem = document.querySelector(`.low-scaffold-relation-item[data-relation-id="${relationId}"]`);
+    if (relationItem) {
+        relationItem.classList.add('used');
+        relationItem.style.background = '#adb5bd';
+        relationItem.style.cursor = 'default';
+        // 关系词可以重复使用，所以不禁用拖拽
+    }
+}
+
 /**
  * 从完整概念图中移除部分节点，用于支架模式
  * @param {Object} fullGraphData - 完整的概念图数据
@@ -4366,11 +5443,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (scaffoldType === 'high') {
                 generateHighScaffoldConceptMap(focusQuestion);
             } else {
-                // 低支架功能待实现
-                showMessage('低支架功能待实现', 'info');
-                window.generateScaffoldConceptMapBtn.classList.remove('loading');
-                window.generateScaffoldConceptMapBtn.textContent = '生成支架概念图';
-                window.generateScaffoldConceptMapBtn.disabled = false;
+                // 低支架模式
+                generateLowScaffoldConceptMap(focusQuestion);
             }
         });
     }

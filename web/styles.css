@@ -1632,4 +1632,109 @@ body {
 .text-analysis-mode .intro-header h4::before {
     content: "📊";
     margin-right: 8px;
-} 
+}
+
+/* =============================================================================
+   低支架概念图模式样式
+   ============================================================================= */
+
+.low-scaffold-mode {
+    min-height: 900px;
+}
+
+.low-scaffold-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    gap: 20px;
+}
+
+.low-scaffold-left-panel {
+    scrollbar-width: thin;
+    scrollbar-color: #667eea #f8f9fa;
+}
+
+.low-scaffold-left-panel::-webkit-scrollbar {
+    width: 6px;
+}
+
+.low-scaffold-left-panel::-webkit-scrollbar-track {
+    background: #f8f9fa;
+    border-radius: 3px;
+}
+
+.low-scaffold-left-panel::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 3px;
+}
+
+.low-scaffold-concept-item {
+    display: inline-block;
+    transition: all 0.2s ease;
+}
+
+.low-scaffold-concept-item:hover:not(.used) {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.low-scaffold-concept-item.used {
+    background: #adb5bd !important;
+    cursor: default !important;
+    opacity: 0.7;
+}
+
+.low-scaffold-relation-item {
+    display: inline-block;
+    transition: all 0.2s ease;
+}
+
+.low-scaffold-relation-item:hover:not(.used) {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.4);
+}
+
+.low-scaffold-graph-area {
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.low-scaffold-graph-area.drag-over {
+    border-color: #667eea !important;
+    background: rgba(102, 126, 234, 0.05) !important;
+}
+
+.low-scaffold-node {
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.low-scaffold-node:hover rect {
+    stroke-width: 3px;
+    stroke: #4c51bf;
+}
+
+.low-scaffold-link {
+    cursor: pointer;
+}
+
+.low-scaffold-link:hover line {
+    stroke: #667eea;
+    stroke-width: 3px;
+}
+
+.low-scaffold-canvas-hint {
+    user-select: none;
+}
+
+/* 低支架模式按钮样式 */
+.low-scaffold-buttons-area .btn {
+    padding: 10px 15px;
+    font-size: 14px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.low-scaffold-buttons-area .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
