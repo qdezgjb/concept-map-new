@@ -164,6 +164,7 @@
                         <button class="btn btn-sm btn-outline" id="addNodeBtn">➕ 添加节点</button>
                         <button class="btn btn-sm btn-outline" id="deleteNodeBtn">➖ 删除节点</button>
                         <button class="btn btn-sm btn-outline" id="editNodeBtn">✏️ 编辑节点</button>
+                        <button class="btn btn-sm btn-outline" id="addFocusQuestionBtn">📌 添加焦点问题</button>
                     </div>
                 </div>
 
@@ -174,6 +175,8 @@
                         <button class="btn btn-sm btn-outline" id="addLinkBtn">🔗 添加连线</button>
                         <button class="btn btn-sm btn-outline" id="deleteLinkBtn">❌ 删除连线</button>
                         <button class="btn btn-sm btn-outline" id="editLinkBtn">✏️ 编辑连线</button>
+                        <button class="btn btn-sm btn-outline" id="addAggregatedLinkBtn">🔀 聚合连接</button>
+                        <button class="btn btn-sm btn-outline" id="addSameLayerAggregatedLinkBtn">🔄 同级聚合连接</button>
                     </div>
                 </div>
 
@@ -181,13 +184,8 @@
                 <div class="control-section">
                     <h4>布局控制</h4>
                     <div class="control-buttons">
-                        <select id="layoutSelect" class="select-field">
-                            <option value="hierarchical" selected>Sugiyama布局</option>
-                            <option value="force">力导向布局</option>
-                        </select>
-                        <button class="btn btn-sm btn-outline" id="autoLayoutBtn">🔄 自动布局</button>
+                        <div class="select-field" style="display: inline-block; padding: 6px 12px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; color: #495057; cursor: default;">改进Sugiyama算法</div>
                         <button class="btn btn-sm btn-outline" id="resetViewBtn">重置视图</button>
-                        <button class="btn btn-sm btn-outline" id="exportImageBtn">导出图片</button>
                     </div>
                 </div>
 

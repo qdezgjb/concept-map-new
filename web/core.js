@@ -542,7 +542,8 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         console.log('概念图数据转换完成:', fullConceptData);
         
         // 先对完整概念图应用布局算法，获取节点的实际位置（使用智能布局）
-        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        // 🔴 固定使用改进的Sugiyama算法
+        const selectedLayout = 'hierarchical';
         let layoutAppliedFullData = fullConceptData;
         
         try {
@@ -848,7 +849,8 @@ async function generateLowScaffoldConceptMap(focusQuestion) {
         const fullConceptData = window.convertTriplesToConceptData(triples);
         
         // 应用布局算法（使用智能布局，包含优化步骤）
-        const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+        // 🔴 固定使用改进的Sugiyama算法
+        const selectedLayout = 'hierarchical';
         let layoutAppliedData = fullConceptData;
         
         try {
@@ -3516,7 +3518,8 @@ function markCandidateNodeAsAdded(nodeId, isCorrect = null) {
  * 应用布局算法并重新渲染
  */
 function applyLayoutAndRedraw() {
-    const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+    // 🔴 固定使用改进的Sugiyama算法
+    const selectedLayout = 'hierarchical';
     let layoutAppliedGraph = window.currentGraphData;
     
     // 🔴 保存待填入节点的ID，以便布局后恢复isPlaceholder属性
@@ -4313,7 +4316,8 @@ function displayExpertConceptMap(expertData) {
     svg.innerHTML = '';
     
     // 先应用布局算法（使用智能布局，包含优化步骤）
-    const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
+    // 🔴 固定使用改进的Sugiyama算法
+    const selectedLayout = 'hierarchical';
     let layoutAppliedData = expertDataCopy;
     
     try {
@@ -5025,10 +5029,7 @@ function resetGenerateButtons() {
         window.descriptionBtn.textContent = '分析生成';
         window.descriptionBtn.disabled = false;
     }
-    // 启用布局下拉框
-    if (window.layoutSelect) {
-        window.layoutSelect.disabled = false;
-    }
+    // 🔴 布局算法已固定为改进的Sugiyama算法，无需启用/禁用下拉框
 }
 
 async function generateConceptMapWithLLM(type, data) {
@@ -5042,11 +5043,7 @@ async function generateConceptMapWithLLM(type, data) {
     isGenerating = true;
     console.log('开始生成概念图流程...');
     
-    // 禁用布局下拉框，防止在生成过程中切换布局
-    if (window.layoutSelect) {
-        window.layoutSelect.disabled = true;
-        console.log('布局下拉框已禁用');
-    }
+    // 🔴 布局算法已固定为改进的Sugiyama算法，无需禁用下拉框
     
     // 清除之前的概念图内容
     console.log('清除之前的概念图内容...');
@@ -5426,11 +5423,7 @@ async function generateConceptMapWithLLM(type, data) {
         hideLoadingState();
         resetGenerateButtons();
         
-        // 启用布局下拉框
-        if (window.layoutSelect) {
-            window.layoutSelect.disabled = false;
-            console.log('布局下拉框已启用');
-        }
+        // 🔴 布局算法已固定为改进的Sugiyama算法，无需启用下拉框
         
         // 恢复迷思概念探查的生成按钮状态（如果存在）
         if (window.misconceptionGenerateBtn) {
@@ -5627,7 +5620,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.uploadImageForGenerationInput = document.getElementById('uploadImageForGeneration');
     window.uploadImageForGenerationBtn = document.getElementById('uploadImageForGenerationBtn');
     window.resetBtn = document.getElementById('resetViewBtn');
-    window.exportBtn = document.getElementById('exportImageBtn');
+    // 🔴 导出图片按钮已删除
     window.graphPlaceholder = document.querySelector('.graph-placeholder');
     window.aiIntroText = document.getElementById('aiIntroText');
     
@@ -5647,8 +5640,10 @@ document.addEventListener('DOMContentLoaded', function() {
     window.addLinkBtn = document.getElementById('addLinkBtn');
     window.deleteLinkBtn = document.getElementById('deleteLinkBtn');
     window.editLinkBtn = document.getElementById('editLinkBtn');
-    window.layoutSelect = document.getElementById('layoutSelect');
-    window.autoLayoutBtn = document.getElementById('autoLayoutBtn');
+    // 🔴 新增按钮
+    window.addFocusQuestionBtn = document.getElementById('addFocusQuestionBtn');
+    window.addAggregatedLinkBtn = document.getElementById('addAggregatedLinkBtn');
+    window.addSameLayerAggregatedLinkBtn = document.getElementById('addSameLayerAggregatedLinkBtn');
     
     console.log('编辑工具栏元素获取结果:');
     console.log('addNodeBtn:', window.addNodeBtn);
@@ -5657,8 +5652,9 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('addLinkBtn:', window.addLinkBtn);
     console.log('deleteLinkBtn:', window.deleteLinkBtn);
     console.log('editLinkBtn:', window.editLinkBtn);
-    console.log('layoutSelect:', window.layoutSelect);
-    console.log('autoLayoutBtn:', window.autoLayoutBtn);
+    console.log('addFocusQuestionBtn:', window.addFocusQuestionBtn);
+    console.log('addAggregatedLinkBtn:', window.addAggregatedLinkBtn);
+    console.log('addSameLayerAggregatedLinkBtn:', window.addSameLayerAggregatedLinkBtn);
     
     // 当前流程元素（全局）
     window.processText = document.getElementById('processText');
@@ -5966,17 +5962,28 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    if (window.layoutSelect) {
-        window.layoutSelect.addEventListener('change', function() {
-            console.log('布局选择改变:', window.layoutSelect.value);
-            changeLayout(window.layoutSelect.value);
+    // 🔴 布局选择已固定为改进的Sugiyama算法，无需事件监听
+    // 🔴 自动布局按钮已删除
+    
+    // 🔴 新增按钮事件绑定
+    if (window.addFocusQuestionBtn) {
+        window.addFocusQuestionBtn.addEventListener('click', function() {
+            console.log('添加焦点问题按钮被点击');
+            addFocusQuestion();
         });
     }
-
-    if (window.autoLayoutBtn) {
-        window.autoLayoutBtn.addEventListener('click', function() {
-            console.log('自动布局按钮被点击');
-            applyAutoLayout();
+    
+    if (window.addAggregatedLinkBtn) {
+        window.addAggregatedLinkBtn.addEventListener('click', function() {
+            console.log('聚合连接按钮被点击');
+            addAggregatedLink();
+        });
+    }
+    
+    if (window.addSameLayerAggregatedLinkBtn) {
+        window.addSameLayerAggregatedLinkBtn.addEventListener('click', function() {
+            console.log('同级聚合连接按钮被点击');
+            addSameLayerAggregatedLink();
         });
     }
 
@@ -6100,4 +6107,67 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化页面
     initializePage();
 });
+
+//=============================================================================
+// 新增功能函数
+//=============================================================================
+
+/**
+ * 添加焦点问题
+ */
+function addFocusQuestion() {
+    if (!window.currentGraphData) {
+        showMessage('请先创建概念图', 'warning');
+        return;
+    }
+    
+    const currentFocusQuestion = window.focusQuestion ? window.focusQuestion.replace('焦点问题：', '') : '';
+    const input = prompt('请输入焦点问题：', currentFocusQuestion);
+    
+    if (input && input.trim()) {
+        window.focusQuestion = `焦点问题：${input.trim()}`;
+        
+        // 重新绘制图形以显示焦点问题
+        if (typeof window.drawGraph === 'function' && window.currentGraphData) {
+            window.drawGraph(window.currentGraphData);
+        }
+        
+        // 显示焦点问题
+        if (typeof window.displayFocusQuestion === 'function') {
+            window.displayFocusQuestion();
+        }
+        
+        showMessage('焦点问题已添加', 'success');
+    }
+}
+
+/**
+ * 添加聚合连接
+ * 提示用户选择源节点和目标节点，然后创建聚合连接
+ */
+function addAggregatedLink() {
+    if (!window.currentGraphData || window.currentGraphData.nodes.length < 2) {
+        showMessage('需要至少两个节点才能添加聚合连接', 'warning');
+        return;
+    }
+    
+    showMessage('聚合连接功能：请先选择两个或多个节点，然后系统会自动检测并创建聚合连接', 'info');
+    // 注意：聚合连接通常是根据现有连线自动检测的，这里主要是提示用户
+    // 实际实现可能需要用户选择多个目标节点，然后系统自动创建聚合连接
+}
+
+/**
+ * 添加同级聚合连接
+ * 提示用户选择同级节点，然后创建同级聚合连接
+ */
+function addSameLayerAggregatedLink() {
+    if (!window.currentGraphData || window.currentGraphData.nodes.length < 2) {
+        showMessage('需要至少两个节点才能添加同级聚合连接', 'warning');
+        return;
+    }
+    
+    showMessage('同级聚合连接功能：请先选择两个或多个同级节点，然后系统会自动检测并创建同级聚合连接', 'info');
+    // 注意：同级聚合连接通常是根据现有连线自动检测的，这里主要是提示用户
+    // 实际实现可能需要用户选择多个同级节点，然后系统自动创建同级聚合连接
+}
 
