@@ -1001,20 +1001,42 @@ function exportScaffoldConceptMap() {
         // 克隆 SVG
         const clonedSvg = scaffoldSvg.cloneNode(true);
         
-        // 获取 SVG 尺寸
-        const svgRect = scaffoldSvg.getBoundingClientRect();
+        // 获取 SVG 尺寸和 viewBox
         const viewBox = scaffoldSvg.getAttribute('viewBox') || '0 0 2400 1600';
         const viewBoxParts = viewBox.split(' ').map(Number);
+        const viewBoxX = viewBoxParts[0] || 0;
+        const viewBoxY = viewBoxParts[1] || 0;
         const svgWidth = viewBoxParts[2] || 2400;
         const svgHeight = viewBoxParts[3] || 1600;
         
+        // 按层级对待选概念进行分组
+        const nodesByLayer = {};
+        candidateNodes.forEach(node => {
+            const layer = node.layer || 2; // 默认层级为2
+            if (!nodesByLayer[layer]) {
+                nodesByLayer[layer] = [];
+            }
+            nodesByLayer[layer].push(node);
+        });
+        
+        // 获取所有层级并排序
+        const layers = Object.keys(nodesByLayer).map(Number).sort((a, b) => a - b);
+        
         // 计算待选概念区域的尺寸
-        const nodeWidth = 120;
+        const nodeWidth = 130;
         const nodeHeight = 45;
-        const nodeGap = 20;
-        const nodesPerRow = Math.floor((svgWidth - 100) / (nodeWidth + nodeGap));
-        const rowCount = Math.ceil(candidateNodes.length / nodesPerRow);
-        const candidateAreaHeight = rowCount * (nodeHeight + nodeGap) + 80; // 80px 用于标题和边距
+        const nodeGap = 25;
+        const layerGap = 20; // 层级之间的垂直间距
+        const labelWidth = 80; // 层级标签宽度
+        
+        // 计算总高度
+        let candidateAreaHeight = 70; // 标题和分隔线的高度
+        layers.forEach(layer => {
+            const nodesInLayer = nodesByLayer[layer].length;
+            const rowsInLayer = 1; // 每层一行
+            candidateAreaHeight += rowsInLayer * (nodeHeight + layerGap);
+        });
+        candidateAreaHeight += 30; // 底部边距
         
         // 创建新的 SVG，包含概念图和待选概念
         const totalHeight = svgHeight + candidateAreaHeight;
@@ -1022,11 +1044,13 @@ function exportScaffoldConceptMap() {
         // 设置克隆 SVG 的属性
         clonedSvg.setAttribute('width', svgWidth);
         clonedSvg.setAttribute('height', totalHeight);
-        clonedSvg.setAttribute('viewBox', `0 0 ${svgWidth} ${totalHeight}`);
+        clonedSvg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${svgWidth} ${totalHeight}`);
         clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         
         // 添加白色背景
         const backgroundRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        backgroundRect.setAttribute('x', viewBoxX);
+        backgroundRect.setAttribute('y', viewBoxY);
         backgroundRect.setAttribute('width', svgWidth);
         backgroundRect.setAttribute('height', totalHeight);
         backgroundRect.setAttribute('fill', 'white');
@@ -1034,23 +1058,24 @@ function exportScaffoldConceptMap() {
         
         // 创建待选概念区域的分组
         const candidateGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        candidateGroup.setAttribute('transform', `translate(0, ${svgHeight})`);
+        candidateGroup.setAttribute('transform', `translate(${viewBoxX}, ${viewBoxY + svgHeight})`);
         
-        // 添加分隔线
+        // 添加分隔线（居中）
+        const lineMargin = 100;
         const separatorLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        separatorLine.setAttribute('x1', '50');
-        separatorLine.setAttribute('y1', '10');
-        separatorLine.setAttribute('x2', svgWidth - 50);
-        separatorLine.setAttribute('y2', '10');
+        separatorLine.setAttribute('x1', lineMargin);
+        separatorLine.setAttribute('y1', '15');
+        separatorLine.setAttribute('x2', svgWidth - lineMargin);
+        separatorLine.setAttribute('y2', '15');
         separatorLine.setAttribute('stroke', '#667eea');
         separatorLine.setAttribute('stroke-width', '2');
         separatorLine.setAttribute('stroke-dasharray', '10,5');
         candidateGroup.appendChild(separatorLine);
         
-        // 添加标题
+        // 添加标题（居中）
         const titleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         titleText.setAttribute('x', svgWidth / 2);
-        titleText.setAttribute('y', '40');
+        titleText.setAttribute('y', '50');
         titleText.setAttribute('text-anchor', 'middle');
         titleText.setAttribute('font-size', '24');
         titleText.setAttribute('font-weight', 'bold');
@@ -1058,48 +1083,68 @@ function exportScaffoldConceptMap() {
         titleText.textContent = '待选概念';
         candidateGroup.appendChild(titleText);
         
-        // 绘制待选概念节点
-        const startY = 60;
-        const startX = 50;
+        // 按层级绘制待选概念节点
+        let currentY = 70;
         
-        candidateNodes.forEach((node, index) => {
-            const row = Math.floor(index / nodesPerRow);
-            const col = index % nodesPerRow;
-            const x = startX + col * (nodeWidth + nodeGap);
-            const y = startY + row * (nodeHeight + nodeGap);
+        layers.forEach(layer => {
+            const nodesInLayer = nodesByLayer[layer];
             
-            // 创建节点组
-            const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            nodeGroup.setAttribute('transform', `translate(${x}, ${y})`);
+            // 计算该层节点的总宽度，用于居中
+            const totalNodesWidth = nodesInLayer.length * nodeWidth + (nodesInLayer.length - 1) * nodeGap;
+            const layerStartX = (svgWidth - totalNodesWidth - labelWidth) / 2;
             
-            // 创建节点背景
-            const nodeRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            nodeRect.setAttribute('width', nodeWidth);
-            nodeRect.setAttribute('height', nodeHeight);
-            nodeRect.setAttribute('rx', '8');
-            nodeRect.setAttribute('fill', '#667eea');
-            nodeRect.setAttribute('stroke', '#5a6fd6');
-            nodeRect.setAttribute('stroke-width', '2');
-            nodeGroup.appendChild(nodeRect);
+            // 绘制层级标签
+            const layerLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            layerLabel.setAttribute('x', layerStartX);
+            layerLabel.setAttribute('y', currentY + nodeHeight / 2);
+            layerLabel.setAttribute('text-anchor', 'end');
+            layerLabel.setAttribute('dominant-baseline', 'middle');
+            layerLabel.setAttribute('font-size', '16');
+            layerLabel.setAttribute('font-weight', 'bold');
+            layerLabel.setAttribute('fill', '#667eea');
+            layerLabel.textContent = `L${layer}:`;
+            candidateGroup.appendChild(layerLabel);
             
-            // 创建节点文字
-            const nodeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            nodeText.setAttribute('x', nodeWidth / 2);
-            nodeText.setAttribute('y', nodeHeight / 2);
-            nodeText.setAttribute('text-anchor', 'middle');
-            nodeText.setAttribute('dominant-baseline', 'middle');
-            nodeText.setAttribute('font-size', '14');
-            nodeText.setAttribute('fill', 'white');
-            nodeText.setAttribute('font-weight', '500');
-            // 如果文字太长，截断并添加省略号
-            let label = node.label || node.id || '';
-            if (label.length > 8) {
-                label = label.substring(0, 7) + '...';
-            }
-            nodeText.textContent = label;
-            nodeGroup.appendChild(nodeText);
+            // 绘制该层的节点（居中排列）
+            nodesInLayer.forEach((node, index) => {
+                const x = layerStartX + labelWidth / 2 + index * (nodeWidth + nodeGap);
+                const y = currentY;
+                
+                // 创建节点组
+                const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                nodeGroup.setAttribute('transform', `translate(${x}, ${y})`);
+                
+                // 创建节点背景
+                const nodeRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                nodeRect.setAttribute('width', nodeWidth);
+                nodeRect.setAttribute('height', nodeHeight);
+                nodeRect.setAttribute('rx', '8');
+                nodeRect.setAttribute('fill', '#667eea');
+                nodeRect.setAttribute('stroke', '#5a6fd6');
+                nodeRect.setAttribute('stroke-width', '2');
+                nodeGroup.appendChild(nodeRect);
+                
+                // 创建节点文字
+                const nodeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                nodeText.setAttribute('x', nodeWidth / 2);
+                nodeText.setAttribute('y', nodeHeight / 2);
+                nodeText.setAttribute('text-anchor', 'middle');
+                nodeText.setAttribute('dominant-baseline', 'middle');
+                nodeText.setAttribute('font-size', '14');
+                nodeText.setAttribute('fill', 'white');
+                nodeText.setAttribute('font-weight', '500');
+                // 如果文字太长，截断并添加省略号
+                let label = node.label || node.id || '';
+                if (label.length > 10) {
+                    label = label.substring(0, 9) + '...';
+                }
+                nodeText.textContent = label;
+                nodeGroup.appendChild(nodeText);
+                
+                candidateGroup.appendChild(nodeGroup);
+            });
             
-            candidateGroup.appendChild(nodeGroup);
+            currentY += nodeHeight + layerGap;
         });
         
         clonedSvg.appendChild(candidateGroup);
