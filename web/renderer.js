@@ -2893,8 +2893,12 @@ function detectAggregatedLinks(links) {
  * @param {Array} allLinks - 所有连线数组
  */
 function drawAggregatedLink(group, nodeById, allNodes, allLinks) {
-    // 🔴 支持支架模式：优先查找 scaffold-concept-graph
+    // 🔴 查找可见的 SVG 元素（优先查找可见的 scaffold-concept-graph）
     let svg = document.querySelector('.scaffold-concept-graph');
+    // 🔴 检查是否可见（display 不是 none）
+    if (svg && svg.style.display === 'none') {
+        svg = null; // 隐藏的 SVG 不使用
+    }
     if (!svg) {
         svg = document.querySelector('.concept-graph');
     }
