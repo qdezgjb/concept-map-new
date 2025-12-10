@@ -297,17 +297,33 @@ function drawGraph(data) {
 
         // 先检测聚合连接（相同连接词和相同源节点的连线）
         const aggregatedLinks = detectAggregatedLinks(data.links);
+        
+        // 🔴 检测同级节点之间的聚合连接
+        const sameLayerAggregatedLinks = detectSameLayerAggregatedLinks(data.links, data.nodes);
+        
+        // 过滤掉已聚合的连线
         const regularLinks = data.links.filter(link => {
             const linkIdStr = link.id || `link-${link.source}-${link.target}`;
-            return !aggregatedLinks.some(group => 
+            // 排除普通聚合连接
+            const inAggregate = aggregatedLinks.some(group => 
                 group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
             );
+            // 排除同级聚合连接
+            const inSameLayerAggregate = sameLayerAggregatedLinks.some(group => 
+                group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
+            );
+            return !inAggregate && !inSameLayerAggregate;
         });
         
-        // 先渲染聚合连接
+        // 先渲染普通聚合连接
         const nodeById = new Map(data.nodes.map(n => [n.id, n]));
         aggregatedLinks.forEach(group => {
             drawAggregatedLink(group, nodeById, data.nodes, data.links);
+        });
+        
+        // 🔴 渲染同级节点聚合连接
+        sameLayerAggregatedLinks.forEach(group => {
+            drawSameLayerAggregatedLink(group, nodeById, data.nodes);
         });
         
         // 再渲染普通连线
@@ -1110,6 +1126,26 @@ function updateConnectedLinks(nodeId) {
                 drawAggregatedLink(group, nodeById, currentGraphData.nodes, currentGraphData.links);
             }
         });
+        
+        // 🔴 检查是否有同级聚合连接需要更新
+        const sameLayerAggregatedLinks = detectSameLayerAggregatedLinks(currentGraphData.links, currentGraphData.nodes);
+        const relatedSameLayerGroups = sameLayerAggregatedLinks.filter(group => {
+            // 检查同级聚合连接的源节点或目标节点是否包含当前节点
+            return group.links.some(link => link.source === nodeId || link.target === nodeId);
+        });
+        
+        // 更新同级聚合连接（重新绘制，因为位置计算较复杂）
+        relatedSameLayerGroups.forEach(group => {
+            const uniqueKey = `same-layer-${group.label}-${group.layer}`;
+            const aggregateGroup = svg.querySelector(`g[data-same-layer-aggregate-group="true"][data-aggregate-key="${uniqueKey}"]`);
+            if (aggregateGroup) {
+                // 移除旧的聚合连接组
+                aggregateGroup.remove();
+            }
+            // 重新绘制
+            const nodeById = new Map(currentGraphData.nodes.map(n => [n.id, n]));
+            drawSameLayerAggregatedLink(group, nodeById, currentGraphData.nodes);
+        });
 
         // 更新普通连线（排除已聚合的连线）
         relatedLinks.forEach(link => {
@@ -1118,8 +1154,12 @@ function updateConnectedLinks(nodeId) {
             const isInAggregate = aggregatedLinks.some(group => 
                 group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
             );
+            // 🔴 检查这个连线是否属于某个同级聚合连接组
+            const isInSameLayerAggregate = sameLayerAggregatedLinks.some(group => 
+                group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
+            );
             
-            if (!isInAggregate) {
+            if (!isInAggregate && !isInSameLayerAggregate) {
                 const linkGroup = svg.querySelector(`g[data-link-id="${linkIdStr}"]`);
                 if (linkGroup) {
                     // 检测连接线是否与其他节点重合
@@ -3208,6 +3248,401 @@ function editAggregateLinkLabel(group) {
             drawGraph(currentGraphData);
             
             showMessage('聚合连接标签已更新', 'success');
+        }
+        document.body.removeChild(input);
+    };
+    
+    input.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            finishEdit();
+        }
+    });
+    
+    input.addEventListener('blur', finishEdit);
+    
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            document.body.removeChild(input);
+        }
+    });
+}
+
+//=============================================================================
+// 同级节点聚合连接（从节点下边中点出发，弧线连接）
+//=============================================================================
+
+/**
+ * 检测同级节点之间的聚合连接
+ * @param {Array} links - 连线数组
+ * @param {Array} nodes - 节点数组
+ * @returns {Array} 同级聚合连接组数组
+ */
+function detectSameLayerAggregatedLinks(links, nodes) {
+    const groups = new Map();
+    const nodeById = new Map(nodes.map(n => [n.id, n]));
+    
+    links.forEach(link => {
+        const label = link.label || '双击编辑';
+        // 只对非空且有意义的连接词进行聚合
+        if (label && label !== '双击编辑' && label.trim().length > 0) {
+            const sourceNode = nodeById.get(link.source);
+            const targetNode = nodeById.get(link.target);
+            
+            // 检查是否为同级节点（同一层级）
+            if (sourceNode && targetNode && 
+                sourceNode.layer !== undefined && targetNode.layer !== undefined &&
+                sourceNode.layer === targetNode.layer) {
+                
+                // 使用连接词作为分组键（同级节点可以按连接词聚合）
+                const key = `${label}`;
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        label: label,
+                        links: [],
+                        layer: sourceNode.layer
+                    });
+                }
+                groups.get(key).links.push(link);
+            }
+        }
+    });
+    
+    // 只返回有2个或更多连线的组（需要聚合）
+    const aggregatedGroups = Array.from(groups.values()).filter(group => group.links.length >= 2);
+    
+    console.log(`检测到 ${aggregatedGroups.length} 组同级聚合连接:`, aggregatedGroups.map(g => ({
+        label: g.label,
+        layer: g.layer,
+        count: g.links.length
+    })));
+    
+    return aggregatedGroups;
+}
+
+/**
+ * 绘制同级节点之间的聚合连接
+ * @param {Object} group - 聚合连接组 {label, links: [...], layer}
+ * @param {Map} nodeById - 节点Map
+ * @param {Array} allNodes - 所有节点数组
+ */
+function drawSameLayerAggregatedLink(group, nodeById, allNodes) {
+    // 🔴 查找可见的 SVG 元素
+    let svg = document.querySelector('.scaffold-concept-graph');
+    if (svg && svg.style.display === 'none') {
+        svg = null;
+    }
+    if (!svg) {
+        svg = document.querySelector('.concept-graph');
+    }
+    if (!svg) return;
+    
+    // 获取所有源节点和目标节点
+    const sourceNodes = [];
+    const targetNodes = [];
+    const linkMap = new Map();
+    
+    group.links.forEach(link => {
+        // 🔴 支持支架模式：节点可能是占位符
+        let source = nodeById.get(link.source);
+        if (!source && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.source);
+            if (placeholder) {
+                source = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50,
+                    layer: placeholder.layer
+                };
+            }
+        }
+        
+        let target = nodeById.get(link.target);
+        if (!target && window.scaffoldPlaceholders) {
+            const placeholder = window.scaffoldPlaceholders.find(p => p.id === link.target);
+            if (placeholder) {
+                target = {
+                    id: placeholder.id,
+                    x: placeholder.x || 0,
+                    y: placeholder.y || 0,
+                    width: placeholder.width || 100,
+                    height: placeholder.height || 50,
+                    layer: placeholder.layer
+                };
+            }
+        }
+        
+        if (source && target) {
+            if (!sourceNodes.find(n => n.id === source.id)) {
+                sourceNodes.push(source);
+            }
+            if (!targetNodes.find(n => n.id === target.id)) {
+                targetNodes.push(target);
+            }
+            linkMap.set(`${link.source}-${link.target}`, { source, target, link });
+        }
+    });
+    
+    if (sourceNodes.length === 0 || targetNodes.length === 0) return;
+    
+    // 计算节点尺寸
+    const getNodeDimensions = (node) => {
+        if (window.calculateNodeDimensions) {
+            return window.calculateNodeDimensions(node.label || '', 70, 35, 14);
+        }
+        return { width: node.width || 70, height: node.height || 35 };
+    };
+    
+    // 创建聚合连接组
+    const aggregateGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    aggregateGroup.setAttribute('data-same-layer-aggregate-group', 'true');
+    aggregateGroup.setAttribute('data-label', group.label);
+    aggregateGroup.setAttribute('data-layer', group.layer);
+    const uniqueKey = `same-layer-${group.label}-${group.layer}`;
+    aggregateGroup.setAttribute('data-aggregate-key', uniqueKey);
+    
+    // 计算连接词标签位置（所有源节点和目标节点的中心点）
+    const allRelatedNodes = [...sourceNodes, ...targetNodes];
+    const centerX = allRelatedNodes.reduce((sum, n) => sum + n.x, 0) / allRelatedNodes.length;
+    const avgY = allRelatedNodes.reduce((sum, n) => {
+        const dim = getNodeDimensions(n);
+        return sum + (n.y + dim.height / 2);
+    }, 0) / allRelatedNodes.length;
+    
+    // 标签位置在节点下方，向下偏移一定距离
+    const labelY = avgY + 80; // 距离节点底部80px
+    const labelX = centerX;
+    
+    // 计算标签宽度
+    const labelWidth = Math.max(60, group.label.length * 12);
+    const textGap = Math.max(30, labelWidth * 0.6);
+    
+    // 为每个源节点绘制弧线到标签
+    sourceNodes.forEach(sourceNode => {
+        const sourceDim = getNodeDimensions(sourceNode);
+        const sourceBottomX = sourceNode.x;
+        const sourceBottomY = sourceNode.y + sourceDim.height / 2;
+        
+        // 计算弧线控制点（向下弯曲）
+        const controlY = (sourceBottomY + labelY) / 2;
+        const controlX = sourceBottomX + (labelX - sourceBottomX) * 0.5;
+        
+        // 计算弧线在标签前的断开位置
+        const dx = labelX - sourceBottomX;
+        const dy = labelY - sourceBottomY;
+        const totalDist = Math.sqrt(dx * dx + dy * dy);
+        const normalizedDx = dx / totalDist;
+        const normalizedDy = dy / totalDist;
+        
+        const gapStartDist = totalDist - textGap / 2;
+        const gapStartX = sourceBottomX + normalizedDx * gapStartDist;
+        const gapStartY = sourceBottomY + normalizedDy * gapStartDist;
+        
+        // 绘制从源节点到标签前的弧线（使用二次贝塞尔曲线）
+        const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const pathData1 = `M ${sourceBottomX} ${sourceBottomY} Q ${controlX} ${controlY} ${gapStartX} ${gapStartY}`;
+        path1.setAttribute('d', pathData1);
+        path1.setAttribute('stroke', '#aaa');
+        path1.setAttribute('stroke-width', '2');
+        path1.setAttribute('fill', 'none');
+        path1.setAttribute('stroke-linecap', 'round');
+        aggregateGroup.appendChild(path1);
+    });
+    
+    // 添加连接词标签
+    const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    labelText.setAttribute('x', labelX);
+    labelText.setAttribute('y', labelY + 4);
+    labelText.setAttribute('text-anchor', 'middle');
+    labelText.setAttribute('font-size', '12');
+    labelText.setAttribute('fill', '#333');
+    labelText.setAttribute('font-weight', '500');
+    labelText.setAttribute('pointer-events', 'all');
+    labelText.setAttribute('cursor', 'pointer');
+    labelText.setAttribute('data-same-layer-aggregate-label', 'true');
+    labelText.setAttribute('data-aggregate-key', uniqueKey);
+    labelText.textContent = group.label;
+    
+    // 标签双击编辑
+    labelText.addEventListener('dblclick', function(e) {
+        e.stopPropagation();
+        editSameLayerAggregateLinkLabel(group);
+    });
+    
+    aggregateGroup.appendChild(labelText);
+    
+    // 为每个目标节点绘制从标签到节点的弧线
+    targetNodes.forEach(targetNode => {
+        const targetDim = getNodeDimensions(targetNode);
+        const targetBottomX = targetNode.x;
+        const targetBottomY = targetNode.y + targetDim.height / 2;
+        
+        // 计算弧线控制点（向上弯曲）
+        const controlY = (labelY + targetBottomY) / 2;
+        const controlX = labelX + (targetBottomX - labelX) * 0.5;
+        
+        // 计算弧线在标签后的起始位置
+        const dx = targetBottomX - labelX;
+        const dy = targetBottomY - labelY;
+        const totalDist = Math.sqrt(dx * dx + dy * dy);
+        const normalizedDx = dx / totalDist;
+        const normalizedDy = dy / totalDist;
+        
+        const gapEndDist = textGap / 2;
+        const gapEndX = labelX + normalizedDx * gapEndDist;
+        const gapEndY = labelY + normalizedDy * gapEndDist;
+        
+        // 找到对应的连线
+        const linkEntry = Array.from(linkMap.values()).find(entry => entry.target.id === targetNode.id);
+        const link = linkEntry ? linkEntry.link : null;
+        const linkIdStr = link ? (link.id || `link-${link.source}-${link.target}`) : '';
+        const isSelected = selectedLinkId === linkIdStr;
+        
+        // 绘制从标签后到目标节点的弧线
+        const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const pathData2 = `M ${gapEndX} ${gapEndY} Q ${controlX} ${controlY} ${targetBottomX} ${targetBottomY}`;
+        path2.setAttribute('d', pathData2);
+        path2.setAttribute('stroke', isSelected ? '#ffd700' : '#aaa');
+        path2.setAttribute('stroke-width', isSelected ? '3' : '2');
+        path2.setAttribute('fill', 'none');
+        path2.setAttribute('stroke-linecap', 'round');
+        if (linkIdStr) {
+            path2.setAttribute('data-link-id', linkIdStr);
+        }
+        
+        // 创建箭头（在目标节点处）
+        const arrowLength = 8;
+        const arrowWidth = 6;
+        const angle = Math.atan2(targetBottomY - controlY, targetBottomX - controlX);
+        const arrowAngle1 = angle + Math.PI / 8;
+        const arrowAngle2 = angle - Math.PI / 8;
+        
+        const arrowPoint1X = targetBottomX - arrowLength * Math.cos(arrowAngle1);
+        const arrowPoint1Y = targetBottomY - arrowLength * Math.sin(arrowAngle1);
+        const arrowPoint2X = targetBottomX - arrowLength * Math.cos(arrowAngle2);
+        const arrowPoint2Y = targetBottomY - arrowLength * Math.sin(arrowAngle2);
+        
+        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const arrowPath = `M ${targetBottomX} ${targetBottomY} L ${arrowPoint1X} ${arrowPoint1Y} L ${arrowPoint2X} ${arrowPoint2Y} Z`;
+        arrow.setAttribute('d', arrowPath);
+        arrow.setAttribute('fill', isSelected ? '#ffd700' : '#aaa');
+        arrow.setAttribute('stroke', isSelected ? '#ffd700' : '#aaa');
+        arrow.setAttribute('stroke-width', '1');
+        if (linkIdStr) {
+            arrow.setAttribute('data-link-id', linkIdStr);
+        }
+        
+        // 点击选中
+        path2.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (linkIdStr) selectLink(linkIdStr);
+        });
+        arrow.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (linkIdStr) selectLink(linkIdStr);
+        });
+        
+        path2.style.cursor = 'pointer';
+        arrow.style.cursor = 'pointer';
+        
+        aggregateGroup.appendChild(path2);
+        aggregateGroup.appendChild(arrow);
+    });
+    
+    // 聚合连接组点击选中
+    aggregateGroup.addEventListener('click', function(e) {
+        if (e.target === aggregateGroup || e.target === labelText) {
+            if (group.links.length > 0) {
+                const firstLinkId = group.links[0].id || `link-${group.links[0].source}-${group.links[0].target}`;
+                selectLink(firstLinkId);
+            }
+        }
+    });
+    
+    aggregateGroup.style.cursor = 'pointer';
+    svg.appendChild(aggregateGroup);
+}
+
+/**
+ * 编辑同级聚合连接的标签
+ * @param {Object} group - 聚合连接组
+ */
+function editSameLayerAggregateLinkLabel(group) {
+    const svg = document.querySelector('.concept-graph') || document.querySelector('.scaffold-concept-graph');
+    if (!svg) return;
+    
+    const uniqueKey = `same-layer-${group.label}-${group.layer}`;
+    const labelElement = svg.querySelector(`text[data-same-layer-aggregate-label="true"][data-aggregate-key="${uniqueKey}"]`);
+    if (!labelElement) return;
+    
+    const currentLabel = group.label;
+    const labelX = parseFloat(labelElement.getAttribute('x'));
+    const labelY = parseFloat(labelElement.getAttribute('y'));
+    
+    const svgRect = svg.getBoundingClientRect();
+    const inputLeft = svgRect.left + labelX - 100;
+    const inputTop = svgRect.top + labelY - 20;
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentLabel;
+    input.style.cssText = `
+        position: fixed;
+        left: ${inputLeft}px;
+        top: ${inputTop}px;
+        width: 200px;
+        height: 40px;
+        border: 3px solid #667eea;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 16px;
+        font-weight: 500;
+        font-family: inherit;
+        z-index: 10000;
+        background: white;
+        text-align: center;
+        box-sizing: border-box;
+        outline: none;
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    `;
+    
+    document.body.appendChild(input);
+    input.focus();
+    input.select();
+    
+    const finishEdit = () => {
+        const newLabel = input.value.trim();
+        if (newLabel && newLabel !== currentLabel) {
+            // 更新所有相关连线的标签
+            group.links.forEach(link => {
+                link.label = newLabel;
+            });
+            
+            // 更新显示
+            labelElement.textContent = newLabel;
+            const newUniqueKey = `same-layer-${newLabel}-${group.layer}`;
+            const aggregateGroup = svg.querySelector(`g[data-same-layer-aggregate-group="true"][data-aggregate-key="${uniqueKey}"]`);
+            if (aggregateGroup) {
+                aggregateGroup.setAttribute('data-label', newLabel);
+                aggregateGroup.setAttribute('data-aggregate-key', newUniqueKey);
+                labelElement.setAttribute('data-aggregate-key', newUniqueKey);
+            }
+            
+            // 更新全局数据
+            if (window.currentGraphData) {
+                window.currentGraphData = currentGraphData;
+                if (typeof saveToHistory === 'function') {
+                    saveToHistory(currentGraphData);
+                }
+            }
+            
+            // 重新绘制图形
+            if (window.drawGraph) {
+                window.drawGraph(currentGraphData);
+            }
+            
+            showMessage('同级聚合连接标签已更新', 'success');
         }
         document.body.removeChild(input);
     };
