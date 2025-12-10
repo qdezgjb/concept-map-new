@@ -3155,3 +3155,9 @@ function editAggregateLinkLabel(group) {
     });
 }
 
+// 导出函数到全局作用域，供其他模块调用
+window.displayFocusQuestion = displayFocusQuestion;
+window.drawGraph = drawGraph;
+window.displayConceptMap = displayConceptMap;
+window.enableCanvasZoom = enableCanvasZoom;
+window.showLoadingState = showLoadingState;
