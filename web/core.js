@@ -927,10 +927,13 @@ function extractConceptsAndRelations(triples) {
     const conceptSet = new Set();
     const relationSet = new Set();
     
+    console.log('extractConceptsAndRelations: 输入三元组:', triples);
+    
     triples.forEach(triple => {
-        if (triple.subject) conceptSet.add(triple.subject);
-        if (triple.object) conceptSet.add(triple.object);
-        if (triple.predicate) relationSet.add(triple.predicate);
+        // 三元组格式：{ source, relation, target, layer }
+        if (triple.source) conceptSet.add(triple.source);
+        if (triple.target) conceptSet.add(triple.target);
+        if (triple.relation) relationSet.add(triple.relation);
     });
     
     // 转换为数组并添加 ID
@@ -946,7 +949,8 @@ function extractConceptsAndRelations(triples) {
         used: false
     }));
     
-    console.log(`提取到 ${concepts.length} 个概念，${relations.length} 个关系词`);
+    console.log(`提取到 ${concepts.length} 个概念:`, concepts.map(c => c.label));
+    console.log(`提取到 ${relations.length} 个关系词:`, relations.map(r => r.label));
     return { concepts, relations };
 }
 
