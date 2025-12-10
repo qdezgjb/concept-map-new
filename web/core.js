@@ -1230,154 +1230,95 @@ function exportExpertConceptMap() {
     showMessage('正在生成专家图，请稍候...', 'info');
     
     try {
-        // 创建一个临时的 SVG 来渲染专家图
-        const tempContainer = document.createElement('div');
-        tempContainer.style.cssText = 'position: absolute; left: -9999px; top: -9999px;';
-        document.body.appendChild(tempContainer);
+        // 检查专家图是否已经渲染到页面上
+        let expertSvg = document.querySelector('.expert-concept-graph');
+        const expertMapArea = document.querySelector('.expert-map-area');
         
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        tempSvg.setAttribute('width', '2400');
-        tempSvg.setAttribute('height', '1600');
-        tempSvg.setAttribute('viewBox', '0 0 2400 1600');
-        tempSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        tempContainer.appendChild(tempSvg);
-        
-        // 添加白色背景
-        const backgroundRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        backgroundRect.setAttribute('width', '2400');
-        backgroundRect.setAttribute('height', '1600');
-        backgroundRect.setAttribute('fill', 'white');
-        tempSvg.appendChild(backgroundRect);
-        
-        // 添加焦点问题框
-        if (window.focusQuestion) {
-            const focusGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        // 如果专家图区域存在但未显示，或者 SVG 为空，先渲染专家图
+        if (!expertSvg || expertSvg.children.length === 0 || 
+            (expertMapArea && expertMapArea.style.display === 'none')) {
+            console.log('专家图未渲染，先进行渲染...');
             
-            // 从焦点问题中提取实际内容
-            let focusText = window.focusQuestion || '';
+            // 临时显示专家图区域
+            const wasHidden = expertMapArea && expertMapArea.style.display === 'none';
+            if (wasHidden) {
+                expertMapArea.style.display = 'block';
+            }
             
-            // 计算焦点问题框的尺寸
-            const focusBoxWidth = Math.min(1800, focusText.length * 32 + 100);
-            const focusBoxHeight = 60;
-            const focusBoxX = (2400 - focusBoxWidth) / 2;
-            const focusBoxY = 30;
+            // 渲染专家图
+            displayExpertConceptMap(expertData);
             
-            const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            bgRect.setAttribute('x', focusBoxX);
-            bgRect.setAttribute('y', focusBoxY);
-            bgRect.setAttribute('width', focusBoxWidth);
-            bgRect.setAttribute('height', focusBoxHeight);
-            bgRect.setAttribute('rx', '10');
-            bgRect.setAttribute('fill', '#f8f9fa');
-            bgRect.setAttribute('stroke', '#667eea');
-            bgRect.setAttribute('stroke-width', '2');
-            focusGroup.appendChild(bgRect);
+            // 获取渲染后的 SVG
+            expertSvg = document.querySelector('.expert-concept-graph');
             
-            const textElem = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            textElem.setAttribute('x', 2400 / 2);
-            textElem.setAttribute('y', focusBoxY + focusBoxHeight / 2);
-            textElem.setAttribute('text-anchor', 'middle');
-            textElem.setAttribute('dominant-baseline', 'middle');
-            textElem.setAttribute('font-size', '24');
-            textElem.setAttribute('font-weight', 'bold');
-            textElem.setAttribute('fill', '#2c3e50');
-            textElem.textContent = focusText;
-            focusGroup.appendChild(textElem);
-            
-            tempSvg.appendChild(focusGroup);
+            // 等待渲染完成后导出
+            setTimeout(() => {
+                doExportExpertSvg(expertSvg, wasHidden, expertMapArea);
+            }, 500);
+        } else {
+            // 直接导出已渲染的专家图
+            doExportExpertSvg(expertSvg, false, expertMapArea);
         }
         
-        // 绘制连线
-        expertData.links.forEach(link => {
-            const sourceNode = expertData.nodes.find(n => n.id === link.source || n.id === link.source?.id);
-            const targetNode = expertData.nodes.find(n => n.id === link.target || n.id === link.target?.id);
-            
-            if (!sourceNode || !targetNode) return;
-            
-            const sourceX = sourceNode.x + (sourceNode.width || 80) / 2;
-            const sourceY = sourceNode.y + (sourceNode.height || 40);
-            const targetX = targetNode.x + (targetNode.width || 80) / 2;
-            const targetY = targetNode.y;
-            
-            // 绘制连线
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', sourceX);
-            line.setAttribute('y1', sourceY);
-            line.setAttribute('x2', targetX);
-            line.setAttribute('y2', targetY);
-            line.setAttribute('stroke', '#999');
-            line.setAttribute('stroke-width', '2');
-            tempSvg.appendChild(line);
-            
-            // 绘制连线标签
-            if (link.label) {
-                const midX = (sourceX + targetX) / 2;
-                const midY = (sourceY + targetY) / 2;
-                
-                const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                labelText.setAttribute('x', midX);
-                labelText.setAttribute('y', midY);
-                labelText.setAttribute('text-anchor', 'middle');
-                labelText.setAttribute('dominant-baseline', 'middle');
-                labelText.setAttribute('font-size', '12');
-                labelText.setAttribute('fill', '#666');
-                labelText.textContent = link.label;
-                tempSvg.appendChild(labelText);
-            }
-        });
+    } catch (error) {
+        console.error('导出专家图失败:', error);
+        showMessage('导出失败: ' + error.message, 'error');
+    }
+}
+
+/**
+ * 执行专家图 SVG 导出
+ */
+function doExportExpertSvg(expertSvg, wasHidden, expertMapArea) {
+    if (!expertSvg) {
+        showMessage('找不到专家图 SVG', 'error');
+        return;
+    }
+    
+    try {
+        // 克隆 SVG
+        const clonedSvg = expertSvg.cloneNode(true);
         
-        // 绘制节点
-        expertData.nodes.forEach(node => {
-            const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            
-            const nodeWidth = node.width || 100;
-            const nodeHeight = node.height || 45;
-            const nodeX = node.x || 0;
-            const nodeY = node.y || 0;
-            
-            // 节点背景
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', nodeX);
-            rect.setAttribute('y', nodeY);
-            rect.setAttribute('width', nodeWidth);
-            rect.setAttribute('height', nodeHeight);
-            rect.setAttribute('rx', '8');
-            rect.setAttribute('fill', '#667eea');
-            rect.setAttribute('stroke', '#5a6fd6');
-            rect.setAttribute('stroke-width', '2');
-            nodeGroup.appendChild(rect);
-            
-            // 节点文字
-            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('x', nodeX + nodeWidth / 2);
-            text.setAttribute('y', nodeY + nodeHeight / 2);
-            text.setAttribute('text-anchor', 'middle');
-            text.setAttribute('dominant-baseline', 'middle');
-            text.setAttribute('font-size', '14');
-            text.setAttribute('fill', 'white');
-            text.setAttribute('font-weight', '500');
-            text.textContent = node.label || node.id || '';
-            nodeGroup.appendChild(text);
-            
-            tempSvg.appendChild(nodeGroup);
-        });
+        // 获取 viewBox
+        const viewBox = expertSvg.getAttribute('viewBox') || '0 0 2400 1200';
+        const viewBoxParts = viewBox.split(' ').map(Number);
+        const svgWidth = viewBoxParts[2] || 2400;
+        const svgHeight = viewBoxParts[3] || 1200;
         
-        // 将 SVG 转换为图片
-        const svgData = new XMLSerializer().serializeToString(tempSvg);
+        // 设置 SVG 属性
+        clonedSvg.setAttribute('width', svgWidth);
+        clonedSvg.setAttribute('height', svgHeight);
+        clonedSvg.setAttribute('viewBox', viewBox);
+        clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         
+        // 添加白色背景（插入到最前面）
+        const backgroundRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        backgroundRect.setAttribute('x', viewBoxParts[0] || 0);
+        backgroundRect.setAttribute('y', viewBoxParts[1] || 0);
+        backgroundRect.setAttribute('width', svgWidth);
+        backgroundRect.setAttribute('height', svgHeight);
+        backgroundRect.setAttribute('fill', 'white');
+        clonedSvg.insertBefore(backgroundRect, clonedSvg.firstChild);
+        
+        // 将 SVG 转换为字符串
+        const svgData = new XMLSerializer().serializeToString(clonedSvg);
+        
+        // 创建 Image 对象
         const img = new Image();
         img.onload = function() {
+            // 创建 Canvas
             const canvas = document.createElement('canvas');
-            const scale = 2;
-            canvas.width = 2400 * scale;
-            canvas.height = 1600 * scale;
+            const scale = 2; // 高清输出
+            canvas.width = svgWidth * scale;
+            canvas.height = svgHeight * scale;
             
             const ctx = canvas.getContext('2d');
             ctx.scale(scale, scale);
             ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, 2400, 1600);
-            ctx.drawImage(img, 0, 0, 2400, 1600);
+            ctx.fillRect(0, 0, svgWidth, svgHeight);
+            ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
             
+            // 导出为 PNG
             canvas.toBlob(function(blob) {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
@@ -1398,18 +1339,25 @@ function exportExpertConceptMap() {
                 link.click();
                 URL.revokeObjectURL(url);
                 
-                // 清理临时元素
-                document.body.removeChild(tempContainer);
+                // 如果之前是隐藏的，恢复隐藏状态
+                if (wasHidden && expertMapArea) {
+                    expertMapArea.style.display = 'none';
+                }
                 
                 showMessage('专家图导出成功！', 'success');
             }, 'image/png');
         };
         
         img.onerror = function() {
-            document.body.removeChild(tempContainer);
+            console.error('图片加载失败');
+            // 如果之前是隐藏的，恢复隐藏状态
+            if (wasHidden && expertMapArea) {
+                expertMapArea.style.display = 'none';
+            }
             showMessage('导出失败，请重试', 'error');
         };
         
+        // 加载 SVG 数据
         const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
         const svgUrl = URL.createObjectURL(svgBlob);
         img.src = svgUrl;
