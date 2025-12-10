@@ -927,8 +927,10 @@ async function generateLowScaffoldConceptMap(focusQuestion) {
  * @returns {Object} { concepts, relations }
  */
 function extractConceptsAndRelations(triples) {
-    const conceptSet = new Set();
+    // 使用 Map 来保存概念和层级信息
+    const conceptMap = new Map(); // key: 概念名, value: { label, layer }
     const relationSet = new Set();
+    const relationCount = new Map(); // 统计关系词使用频率
     
     console.log('extractConceptsAndRelations: 输入三元组数量:', triples ? triples.length : 0);
     console.log('extractConceptsAndRelations: 输入三元组:', triples);
@@ -942,34 +944,112 @@ function extractConceptsAndRelations(triples) {
         // 三元组格式：{ source, relation, target, layer }
         console.log(`处理三元组 ${index + 1}:`, triple);
         
+        // 解析层级信息（格式：L1-L2）
+        let sourceLayer = null;
+        let targetLayer = null;
+        if (triple.layer) {
+            const layerMatch = triple.layer.match(/^L(\d+)-L(\d+)$/);
+            if (layerMatch) {
+                sourceLayer = parseInt(layerMatch[1]);
+                targetLayer = parseInt(layerMatch[2]);
+            }
+        }
+        
+        // 添加源概念及其层级
         if (triple.source) {
-            conceptSet.add(triple.source);
-            console.log(`  添加概念: ${triple.source}`);
+            if (!conceptMap.has(triple.source)) {
+                conceptMap.set(triple.source, {
+                    label: triple.source,
+                    layer: sourceLayer
+                });
+            } else {
+                // 如果已存在，更新层级（取较小的层级，因为概念可能出现在多个三元组中）
+                const existing = conceptMap.get(triple.source);
+                if (sourceLayer !== null && (existing.layer === null || sourceLayer < existing.layer)) {
+                    existing.layer = sourceLayer;
+                }
+            }
+            console.log(`  添加概念: ${triple.source} (层级: L${sourceLayer})`);
         }
+        
+        // 添加目标概念及其层级
         if (triple.target) {
-            conceptSet.add(triple.target);
-            console.log(`  添加概念: ${triple.target}`);
+            if (!conceptMap.has(triple.target)) {
+                conceptMap.set(triple.target, {
+                    label: triple.target,
+                    layer: targetLayer
+                });
+            } else {
+                // 如果已存在，更新层级（取较小的层级）
+                const existing = conceptMap.get(triple.target);
+                if (targetLayer !== null && (existing.layer === null || targetLayer < existing.layer)) {
+                    existing.layer = targetLayer;
+                }
+            }
+            console.log(`  添加概念: ${triple.target} (层级: L${targetLayer})`);
         }
+        
         if (triple.relation) {
             relationSet.add(triple.relation);
+            // 统计使用频率
+            const count = relationCount.get(triple.relation) || 0;
+            relationCount.set(triple.relation, count + 1);
             console.log(`  添加关系词: ${triple.relation}`);
         }
     });
     
-    // 转换为数组并添加 ID
-    const concepts = Array.from(conceptSet).map((concept, index) => ({
-        id: `concept-${index}`,
-        label: concept,
-        used: false
-    }));
+    // 按层级分组概念
+    const conceptsByLayer = {};
+    conceptMap.forEach((conceptData, label) => {
+        const layer = conceptData.layer !== null ? conceptData.layer : 999; // 没有层级的放在最后
+        if (!conceptsByLayer[layer]) {
+            conceptsByLayer[layer] = [];
+        }
+        conceptsByLayer[layer].push(conceptData);
+    });
     
-    const relations = Array.from(relationSet).map((relation, index) => ({
-        id: `relation-${index}`,
-        label: relation,
-        used: false
-    }));
+    // 按层级排序并转换为数组
+    const sortedLayers = Object.keys(conceptsByLayer).map(Number).sort((a, b) => a - b);
+    let conceptIndex = 0;
+    const concepts = [];
+    sortedLayers.forEach(layer => {
+        conceptsByLayer[layer].forEach(conceptData => {
+            concepts.push({
+                id: `concept-${conceptIndex}`,
+                label: conceptData.label,
+                layer: conceptData.layer,
+                used: false
+            });
+            conceptIndex++;
+        });
+    });
     
-    console.log(`✅ 提取到 ${concepts.length} 个概念:`, concepts.map(c => c.label));
+    // 关系词按使用频率排序（频率高的在前），频率相同则按字母顺序
+    const relations = Array.from(relationSet)
+        .map(relation => ({
+            label: relation,
+            frequency: relationCount.get(relation) || 0
+        }))
+        .sort((a, b) => {
+            if (b.frequency !== a.frequency) {
+                return b.frequency - a.frequency; // 频率高的在前
+            }
+            return a.label.localeCompare(b.label); // 频率相同按字母顺序
+        })
+        .map((relation, index) => ({
+            id: `relation-${index}`,
+            label: relation.label,
+            frequency: relation.frequency,
+            used: false
+        }));
+    
+    console.log(`✅ 提取到 ${concepts.length} 个概念（按层级排序）:`);
+    sortedLayers.forEach(layer => {
+        const layerConcepts = concepts.filter(c => c.layer === layer);
+        if (layerConcepts.length > 0) {
+            console.log(`  L${layer}: ${layerConcepts.map(c => c.label).join(', ')}`);
+        }
+    });
     console.log(`✅ 提取到 ${relations.length} 个关系词:`, relations.map(r => r.label));
     return { concepts, relations };
 }
@@ -1165,7 +1245,7 @@ function bindLowScaffoldButtonEvents(leftPanel, expertMapArea) {
 }
 
 /**
- * 显示待选概念列表
+ * 显示待选概念列表（按层级分组）
  */
 function displayLowScaffoldConcepts(concepts) {
     console.log('displayLowScaffoldConcepts: 开始显示，概念数量:', concepts.length);
@@ -1188,60 +1268,107 @@ function displayLowScaffoldConcepts(concepts) {
         return;
     }
     
+    // 按层级分组
+    const conceptsByLayer = {};
     concepts.forEach(concept => {
-        const item = document.createElement('div');
-        item.className = 'low-scaffold-concept-item';
-        item.setAttribute('data-concept-id', concept.id);
-        item.setAttribute('data-concept-label', concept.label);
-        item.draggable = true;
-        item.style.cssText = `
-            padding: 8px 12px;
-            background: #667eea;
-            color: white;
-            border-radius: 20px;
-            font-size: 13px;
-            cursor: grab;
-            transition: all 0.2s;
-            user-select: none;
-        `;
-        item.textContent = concept.label;
-        
-        // 拖拽事件
-        item.addEventListener('dragstart', function(e) {
-            e.dataTransfer.setData('text/plain', JSON.stringify({
-                type: 'concept',
-                id: concept.id,
-                label: concept.label
-            }));
-            e.dataTransfer.effectAllowed = 'copy';
-            this.style.opacity = '0.5';
-        });
-        
-        item.addEventListener('dragend', function() {
-            this.style.opacity = '1';
-        });
-        
-        // 鼠标悬停效果
-        item.addEventListener('mouseenter', function() {
-            if (!this.classList.contains('used')) {
-                this.style.transform = 'scale(1.05)';
-                this.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.4)';
-            }
-        });
-        
-        item.addEventListener('mouseleave', function() {
-            this.style.transform = 'scale(1)';
-            this.style.boxShadow = 'none';
-        });
-        
-        conceptsList.appendChild(item);
+        const layer = concept.layer !== null && concept.layer !== undefined ? concept.layer : 999;
+        if (!conceptsByLayer[layer]) {
+            conceptsByLayer[layer] = [];
+        }
+        conceptsByLayer[layer].push(concept);
     });
     
-    console.log(`displayLowScaffoldConcepts: 成功显示 ${concepts.length} 个概念`);
+    // 按层级排序
+    const sortedLayers = Object.keys(conceptsByLayer).map(Number).sort((a, b) => a - b);
+    
+    // 为每个层级创建分组
+    sortedLayers.forEach(layer => {
+        const layerConcepts = conceptsByLayer[layer];
+        
+        // 创建层级标题
+        const layerHeader = document.createElement('div');
+        layerHeader.style.cssText = `
+            width: 100%;
+            margin-top: ${layer === sortedLayers[0] ? '0' : '15px'};
+            margin-bottom: 8px;
+            padding: 6px 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-align: center;
+        `;
+        layerHeader.textContent = layer === 999 ? '未分类' : `层级 L${layer}`;
+        conceptsList.appendChild(layerHeader);
+        
+        // 创建该层级的概念容器
+        const layerContainer = document.createElement('div');
+        layerContainer.style.cssText = `
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        `;
+        
+        // 添加该层级的所有概念
+        layerConcepts.forEach(concept => {
+            const item = document.createElement('div');
+            item.className = 'low-scaffold-concept-item';
+            item.setAttribute('data-concept-id', concept.id);
+            item.setAttribute('data-concept-label', concept.label);
+            item.draggable = true;
+            item.style.cssText = `
+                padding: 8px 12px;
+                background: #667eea;
+                color: white;
+                border-radius: 20px;
+                font-size: 13px;
+                cursor: grab;
+                transition: all 0.2s;
+                user-select: none;
+            `;
+            item.textContent = concept.label;
+            
+            // 拖拽事件
+            item.addEventListener('dragstart', function(e) {
+                e.dataTransfer.setData('text/plain', JSON.stringify({
+                    type: 'concept',
+                    id: concept.id,
+                    label: concept.label
+                }));
+                e.dataTransfer.effectAllowed = 'copy';
+                this.style.opacity = '0.5';
+            });
+            
+            item.addEventListener('dragend', function() {
+                this.style.opacity = '1';
+            });
+            
+            // 鼠标悬停效果
+            item.addEventListener('mouseenter', function() {
+                if (!this.classList.contains('used')) {
+                    this.style.transform = 'scale(1.05)';
+                    this.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.4)';
+                }
+            });
+            
+            item.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = 'none';
+            });
+            
+            layerContainer.appendChild(item);
+        });
+        
+        conceptsList.appendChild(layerContainer);
+    });
+    
+    console.log(`displayLowScaffoldConcepts: 成功显示 ${concepts.length} 个概念，共 ${sortedLayers.length} 个层级`);
 }
 
 /**
- * 显示待选关系词列表
+ * 显示待选关系词列表（按使用频率分组）
  */
 function displayLowScaffoldRelations(relations) {
     console.log('displayLowScaffoldRelations: 开始显示，关系词数量:', relations.length);
@@ -1264,56 +1391,105 @@ function displayLowScaffoldRelations(relations) {
         return;
     }
     
+    // 按使用频率分组
+    const relationsByFrequency = {};
     relations.forEach(relation => {
-        const item = document.createElement('div');
-        item.className = 'low-scaffold-relation-item';
-        item.setAttribute('data-relation-id', relation.id);
-        item.setAttribute('data-relation-label', relation.label);
-        item.draggable = true;
-        item.style.cssText = `
-            padding: 6px 10px;
-            background: #28a745;
-            color: white;
-            border-radius: 12px;
-            font-size: 12px;
-            cursor: grab;
-            transition: all 0.2s;
-            user-select: none;
-        `;
-        item.textContent = relation.label;
-        
-        // 拖拽事件
-        item.addEventListener('dragstart', function(e) {
-            e.dataTransfer.setData('text/plain', JSON.stringify({
-                type: 'relation',
-                id: relation.id,
-                label: relation.label
-            }));
-            e.dataTransfer.effectAllowed = 'copy';
-            this.style.opacity = '0.5';
-        });
-        
-        item.addEventListener('dragend', function() {
-            this.style.opacity = '1';
-        });
-        
-        // 鼠标悬停效果
-        item.addEventListener('mouseenter', function() {
-            if (!this.classList.contains('used')) {
-                this.style.transform = 'scale(1.05)';
-                this.style.boxShadow = '0 2px 8px rgba(40, 167, 69, 0.4)';
-            }
-        });
-        
-        item.addEventListener('mouseleave', function() {
-            this.style.transform = 'scale(1)';
-            this.style.boxShadow = 'none';
-        });
-        
-        relationsList.appendChild(item);
+        const freq = relation.frequency || 0;
+        if (!relationsByFrequency[freq]) {
+            relationsByFrequency[freq] = [];
+        }
+        relationsByFrequency[freq].push(relation);
     });
     
-    console.log(`displayLowScaffoldRelations: 成功显示 ${relations.length} 个关系词`);
+    // 按频率排序（频率高的在前）
+    const sortedFrequencies = Object.keys(relationsByFrequency).map(Number).sort((a, b) => b - a);
+    
+    // 为每个频率组创建分组
+    sortedFrequencies.forEach(frequency => {
+        const freqRelations = relationsByFrequency[frequency];
+        
+        // 创建频率标题（只显示频率大于1的）
+        if (frequency > 1) {
+            const freqHeader = document.createElement('div');
+            freqHeader.style.cssText = `
+                width: 100%;
+                margin-top: ${frequency === sortedFrequencies[0] ? '0' : '12px'};
+                margin-bottom: 6px;
+                padding: 4px 8px;
+                background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                color: white;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+                text-align: center;
+            `;
+            freqHeader.textContent = `使用 ${frequency} 次`;
+            relationsList.appendChild(freqHeader);
+        }
+        
+        // 创建该频率组的关系词容器
+        const freqContainer = document.createElement('div');
+        freqContainer.style.cssText = `
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: ${frequency > 1 ? '6px' : '0'};
+        `;
+        
+        // 添加该频率组的所有关系词
+        freqRelations.forEach(relation => {
+            const item = document.createElement('div');
+            item.className = 'low-scaffold-relation-item';
+            item.setAttribute('data-relation-id', relation.id);
+            item.setAttribute('data-relation-label', relation.label);
+            item.draggable = true;
+            item.style.cssText = `
+                padding: 6px 10px;
+                background: #28a745;
+                color: white;
+                border-radius: 12px;
+                font-size: 12px;
+                cursor: grab;
+                transition: all 0.2s;
+                user-select: none;
+            `;
+            item.textContent = relation.label;
+            
+            // 拖拽事件
+            item.addEventListener('dragstart', function(e) {
+                e.dataTransfer.setData('text/plain', JSON.stringify({
+                    type: 'relation',
+                    id: relation.id,
+                    label: relation.label
+                }));
+                e.dataTransfer.effectAllowed = 'copy';
+                this.style.opacity = '0.5';
+            });
+            
+            item.addEventListener('dragend', function() {
+                this.style.opacity = '1';
+            });
+            
+            // 鼠标悬停效果
+            item.addEventListener('mouseenter', function() {
+                if (!this.classList.contains('used')) {
+                    this.style.transform = 'scale(1.05)';
+                    this.style.boxShadow = '0 2px 8px rgba(40, 167, 69, 0.4)';
+                }
+            });
+            
+            item.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+                this.style.boxShadow = 'none';
+            });
+            
+            freqContainer.appendChild(item);
+        });
+        
+        relationsList.appendChild(freqContainer);
+    });
+    
+    console.log(`displayLowScaffoldRelations: 成功显示 ${relations.length} 个关系词，共 ${sortedFrequencies.length} 个频率组`);
 }
 
 /**
