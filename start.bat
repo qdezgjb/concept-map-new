@@ -149,16 +149,16 @@ if errorlevel 1 (
     goto port_found
 )
 
-echo Port %PORT% is occupied, trying next port...
-set /a PORT+=1
+    echo Port %PORT% is occupied, trying next port...
+    set /a PORT+=1
 
 REM Reset to START_PORT if we exceed END_PORT (one full cycle)
 if %PORT% GTR %END_PORT% (
     echo Completed one full scan cycle, restarting from port %START_PORT%...
     set PORT=%START_PORT%
-)
+    )
 
-goto port_loop
+    goto port_loop
 
 :port_found
 echo.

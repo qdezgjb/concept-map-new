@@ -868,9 +868,12 @@ async function generateLowScaffoldConceptMap(focusQuestion) {
         console.log('=== 步骤5：设置低支架模式布局 ===');
         setupLowScaffoldLayout();
         
-        // 显示待选概念和关系词
-        displayLowScaffoldConcepts(concepts);
-        displayLowScaffoldRelations(relations);
+        // 使用 setTimeout 确保 DOM 完全创建后再显示
+        setTimeout(() => {
+            console.log('开始显示待选概念和关系词，概念数量:', concepts.length, '关系词数量:', relations.length);
+            displayLowScaffoldConcepts(concepts);
+            displayLowScaffoldRelations(relations);
+        }, 100);
         
         // 初始化低支架模式的交互
         initLowScaffoldInteractions();
@@ -927,13 +930,30 @@ function extractConceptsAndRelations(triples) {
     const conceptSet = new Set();
     const relationSet = new Set();
     
+    console.log('extractConceptsAndRelations: 输入三元组数量:', triples ? triples.length : 0);
     console.log('extractConceptsAndRelations: 输入三元组:', triples);
     
-    triples.forEach(triple => {
+    if (!triples || !Array.isArray(triples) || triples.length === 0) {
+        console.error('extractConceptsAndRelations: 三元组数组为空或无效');
+        return { concepts: [], relations: [] };
+    }
+    
+    triples.forEach((triple, index) => {
         // 三元组格式：{ source, relation, target, layer }
-        if (triple.source) conceptSet.add(triple.source);
-        if (triple.target) conceptSet.add(triple.target);
-        if (triple.relation) relationSet.add(triple.relation);
+        console.log(`处理三元组 ${index + 1}:`, triple);
+        
+        if (triple.source) {
+            conceptSet.add(triple.source);
+            console.log(`  添加概念: ${triple.source}`);
+        }
+        if (triple.target) {
+            conceptSet.add(triple.target);
+            console.log(`  添加概念: ${triple.target}`);
+        }
+        if (triple.relation) {
+            relationSet.add(triple.relation);
+            console.log(`  添加关系词: ${triple.relation}`);
+        }
     });
     
     // 转换为数组并添加 ID
@@ -949,8 +969,8 @@ function extractConceptsAndRelations(triples) {
         used: false
     }));
     
-    console.log(`提取到 ${concepts.length} 个概念:`, concepts.map(c => c.label));
-    console.log(`提取到 ${relations.length} 个关系词:`, relations.map(r => r.label));
+    console.log(`✅ 提取到 ${concepts.length} 个概念:`, concepts.map(c => c.label));
+    console.log(`✅ 提取到 ${relations.length} 个关系词:`, relations.map(r => r.label));
     return { concepts, relations };
 }
 
@@ -1049,6 +1069,10 @@ function setupLowScaffoldLayout() {
     leftPanel.appendChild(buttonsArea);
     scaffoldContainer.appendChild(leftPanel);
     
+    console.log('setupLowScaffoldLayout: DOM 结构已创建');
+    console.log('  概念列表元素:', document.querySelector('.low-scaffold-concepts-list'));
+    console.log('  关系词列表元素:', document.querySelector('.low-scaffold-relations-list'));
+    
     // 右侧：空白画布区域
     const graphArea = document.createElement('div');
     graphArea.className = 'scaffold-graph-area low-scaffold-graph-area';
@@ -1144,10 +1168,25 @@ function bindLowScaffoldButtonEvents(leftPanel, expertMapArea) {
  * 显示待选概念列表
  */
 function displayLowScaffoldConcepts(concepts) {
+    console.log('displayLowScaffoldConcepts: 开始显示，概念数量:', concepts.length);
     const conceptsList = document.querySelector('.low-scaffold-concepts-list');
-    if (!conceptsList) return;
+    if (!conceptsList) {
+        console.error('displayLowScaffoldConcepts: 找不到 .low-scaffold-concepts-list 元素');
+        // 尝试从保存的数据中重新显示
+        if (window.lowScaffoldConcepts && window.lowScaffoldConcepts.length > 0) {
+            console.log('尝试延迟显示概念...');
+            setTimeout(() => displayLowScaffoldConcepts(window.lowScaffoldConcepts), 200);
+        }
+        return;
+    }
     
+    console.log('displayLowScaffoldConcepts: 找到元素，开始渲染');
     conceptsList.innerHTML = '';
+    
+    if (concepts.length === 0) {
+        console.warn('displayLowScaffoldConcepts: 概念数组为空');
+        return;
+    }
     
     concepts.forEach(concept => {
         const item = document.createElement('div');
@@ -1197,16 +1236,33 @@ function displayLowScaffoldConcepts(concepts) {
         
         conceptsList.appendChild(item);
     });
+    
+    console.log(`displayLowScaffoldConcepts: 成功显示 ${concepts.length} 个概念`);
 }
 
 /**
  * 显示待选关系词列表
  */
 function displayLowScaffoldRelations(relations) {
+    console.log('displayLowScaffoldRelations: 开始显示，关系词数量:', relations.length);
     const relationsList = document.querySelector('.low-scaffold-relations-list');
-    if (!relationsList) return;
+    if (!relationsList) {
+        console.error('displayLowScaffoldRelations: 找不到 .low-scaffold-relations-list 元素');
+        // 尝试从保存的数据中重新显示
+        if (window.lowScaffoldRelations && window.lowScaffoldRelations.length > 0) {
+            console.log('尝试延迟显示关系词...');
+            setTimeout(() => displayLowScaffoldRelations(window.lowScaffoldRelations), 200);
+        }
+        return;
+    }
     
+    console.log('displayLowScaffoldRelations: 找到元素，开始渲染');
     relationsList.innerHTML = '';
+    
+    if (relations.length === 0) {
+        console.warn('displayLowScaffoldRelations: 关系词数组为空');
+        return;
+    }
     
     relations.forEach(relation => {
         const item = document.createElement('div');
@@ -1256,6 +1312,8 @@ function displayLowScaffoldRelations(relations) {
         
         relationsList.appendChild(item);
     });
+    
+    console.log(`displayLowScaffoldRelations: 成功显示 ${relations.length} 个关系词`);
 }
 
 /**

@@ -158,8 +158,8 @@ function selectNode(nodeId) {
                     rect.setAttribute('stroke-dasharray', 'none');
                 } else {
                     // 普通节点恢复白色边框
-                    rect.setAttribute('stroke', '#fff');
-                    rect.setAttribute('stroke-width', '2');
+                rect.setAttribute('stroke', '#fff');
+                rect.setAttribute('stroke-width', '2');
                     rect.setAttribute('stroke-dasharray', 'none');
                 }
             }
@@ -183,8 +183,8 @@ function selectNode(nodeId) {
                     rect.setAttribute('stroke-width', '3');
                     rect.setAttribute('stroke-dasharray', '5,5');
                 } else {
-                    rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
-                    rect.setAttribute('stroke-width', '3');
+                rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                rect.setAttribute('stroke-width', '3');
                     rect.setAttribute('stroke-dasharray', 'none');
                 }
             }
@@ -229,8 +229,8 @@ function deselectNode() {
                         rect.setAttribute('stroke-dasharray', 'none');
                     } else {
                         // 普通节点恢复白色边框
-                        rect.setAttribute('stroke', '#fff');
-                        rect.setAttribute('stroke-width', '2');
+                    rect.setAttribute('stroke', '#fff');
+                    rect.setAttribute('stroke-width', '2');
                         rect.setAttribute('stroke-dasharray', 'none');
                     }
                 }
@@ -273,8 +273,8 @@ function selectAllNodes() {
                     rect.setAttribute('stroke-width', '3');
                     rect.setAttribute('stroke-dasharray', '5,5');
                 } else {
-                    rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
-                    rect.setAttribute('stroke-width', '3');
+                rect.setAttribute('stroke', '#ffd700'); // 金色边框表示选中
+                rect.setAttribute('stroke-width', '3');
                     rect.setAttribute('stroke-dasharray', 'none');
                 }
             }
@@ -1102,8 +1102,8 @@ function clearTemporaryNodeSelection() {
                         rect.setAttribute('stroke-width', '3');
                         rect.setAttribute('stroke-dasharray', '5,5');
                     } else {
-                        rect.setAttribute('stroke', '#ffd700'); // 保持选中状态
-                        rect.setAttribute('stroke-width', '3');
+                    rect.setAttribute('stroke', '#ffd700'); // 保持选中状态
+                    rect.setAttribute('stroke-width', '3');
                         rect.setAttribute('stroke-dasharray', 'none');
                     }
                 } else if (node && node.isPlaceholder) {
