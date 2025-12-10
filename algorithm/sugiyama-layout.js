@@ -431,8 +431,9 @@ function sortNodesByBarycenter(levelNodes, links, nodeMap, level, aggregatedLink
  * @param {Map} orderedLevels - 排序后的层次Map
  * @param {number} width - 画布宽度
  * @param {number} height - 画布高度
+ * @param {Array} links - 连线数组
  */
-function assignCoordinates(nodes, orderedLevels, width, height) {
+function assignCoordinates(nodes, orderedLevels, width, height, links = []) {
     console.log('开始坐标分配...');
     
     // 计算布局参数
@@ -636,8 +637,8 @@ function assignCoordinates(nodes, orderedLevels, width, height) {
     
     console.log('坐标分配完成');
     
-    // 🔴 新增：优化父子节点位置对齐
-    optimizeParentChildAlignment(nodes, window.currentGraphData ? window.currentGraphData.links : [], width, horizontalMargin);
+    // 🔴 新增：优化父子节点位置对齐（让有连接词的上下级节点距离更近）
+    optimizeParentChildAlignment(nodes, links, width, horizontalMargin);
 }
 
 /**
@@ -895,7 +896,7 @@ function applySugiyamaLayout(graphData) {
     const orderedLevels = orderNodesInLayers(nodes, links, levels);
     
     // 步骤3: 坐标分配
-    assignCoordinates(nodes, orderedLevels, width, height);
+    assignCoordinates(nodes, orderedLevels, width, height, links);
     
     // 调整viewBox，确保所有元素都在可视范围内
     adjustViewBox(nodes, width, height);

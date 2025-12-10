@@ -541,14 +541,24 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
         const fullConceptData = window.convertTriplesToConceptData(triples);
         console.log('概念图数据转换完成:', fullConceptData);
         
-        // 先对完整概念图应用布局算法，获取节点的实际位置
+        // 先对完整概念图应用布局算法，获取节点的实际位置（使用智能布局）
         const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
         let layoutAppliedFullData = fullConceptData;
         
         try {
-            if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+            // 🔴 优先使用智能布局，它包含连线优化和节点位置优化
+            if (typeof window.applyIntelligentLayout === 'function') {
+                console.log('完整概念图：应用智能布局（包含优化）');
+                layoutAppliedFullData = window.applyIntelligentLayout(fullConceptData);
+            } else if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
                 console.log('完整概念图：应用Sugiyama布局');
                 layoutAppliedFullData = window.applySugiyamaLayout(fullConceptData);
+                
+                // 🔴 应用连线优化，减少交叉（直接修改节点和连线数组）
+                if (typeof window.optimizeLinkRouting === 'function') {
+                    console.log('完整概念图：应用连线优化');
+                    window.optimizeLinkRouting(layoutAppliedFullData.nodes, layoutAppliedFullData.links);
+                }
             } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
                 console.log('完整概念图：应用力导向布局');
                 layoutAppliedFullData = window.applyForceDirectedLayout(fullConceptData, {
@@ -560,6 +570,12 @@ async function generateHighScaffoldConceptMap(focusQuestion) {
                     nodeCharge: -300,
                     nodeSpacing: 60
                 });
+                
+                // 🔴 应用连线优化（直接修改节点和连线数组）
+                if (typeof window.optimizeLinkRouting === 'function') {
+                    console.log('完整概念图：应用连线优化');
+                    window.optimizeLinkRouting(layoutAppliedFullData.nodes, layoutAppliedFullData.links);
+                }
             }
         } catch (error) {
             console.error('完整概念图布局算法应用失败:', error);
@@ -831,18 +847,34 @@ async function generateLowScaffoldConceptMap(focusQuestion) {
         console.log('=== 步骤3：转换为概念图数据 ===');
         const fullConceptData = window.convertTriplesToConceptData(triples);
         
-        // 应用布局算法
+        // 应用布局算法（使用智能布局，包含优化步骤）
         const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
         let layoutAppliedData = fullConceptData;
         
         try {
-            if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+            // 🔴 优先使用智能布局，它包含连线优化和节点位置优化
+            if (typeof window.applyIntelligentLayout === 'function') {
+                console.log('低支架概念图：应用智能布局（包含优化）');
+                layoutAppliedData = window.applyIntelligentLayout(fullConceptData);
+            } else if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
                 layoutAppliedData = window.applySugiyamaLayout(fullConceptData);
+                
+                // 🔴 应用连线优化，减少交叉（直接修改节点和连线数组）
+                if (typeof window.optimizeLinkRouting === 'function') {
+                    console.log('低支架概念图：应用连线优化');
+                    window.optimizeLinkRouting(layoutAppliedData.nodes, layoutAppliedData.links);
+                }
             } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
                 layoutAppliedData = window.applyForceDirectedLayout(fullConceptData, {
                     width: 2400,
                     height: 1200
                 });
+                
+                // 🔴 应用连线优化（直接修改节点和连线数组）
+                if (typeof window.optimizeLinkRouting === 'function') {
+                    console.log('低支架概念图：应用连线优化');
+                    window.optimizeLinkRouting(layoutAppliedData.nodes, layoutAppliedData.links);
+                }
             }
         } catch (error) {
             console.error('布局算法应用失败:', error);
@@ -4280,14 +4312,24 @@ function displayExpertConceptMap(expertData) {
     // 清空SVG
     svg.innerHTML = '';
     
-    // 先应用布局算法
+    // 先应用布局算法（使用智能布局，包含优化步骤）
     const selectedLayout = window.layoutSelect ? window.layoutSelect.value : 'hierarchical';
     let layoutAppliedData = expertDataCopy;
     
     try {
-        if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
+        // 🔴 优先使用智能布局，它包含连线优化和节点位置优化
+        if (typeof window.applyIntelligentLayout === 'function') {
+            console.log('专家图：应用智能布局（包含优化）');
+            layoutAppliedData = window.applyIntelligentLayout(expertDataCopy);
+        } else if (selectedLayout === 'hierarchical' && typeof window.applySugiyamaLayout === 'function') {
             console.log('专家图：应用Sugiyama布局');
             layoutAppliedData = window.applySugiyamaLayout(expertDataCopy);
+            
+            // 🔴 应用连线优化，减少交叉（直接修改节点和连线数组）
+            if (typeof window.optimizeLinkRouting === 'function') {
+                console.log('专家图：应用连线优化');
+                window.optimizeLinkRouting(layoutAppliedData.nodes, layoutAppliedData.links);
+            }
         } else if (selectedLayout === 'force' && typeof window.applyForceDirectedLayout === 'function') {
             console.log('专家图：应用力导向布局');
             layoutAppliedData = window.applyForceDirectedLayout(expertDataCopy, {
@@ -4299,6 +4341,12 @@ function displayExpertConceptMap(expertData) {
                 nodeCharge: -300,
                 nodeSpacing: 60
             });
+            
+            // 🔴 应用连线优化（直接修改节点和连线数组）
+            if (typeof window.optimizeLinkRouting === 'function') {
+                console.log('专家图：应用连线优化');
+                window.optimizeLinkRouting(layoutAppliedData.nodes, layoutAppliedData.links);
+            }
         }
     } catch (error) {
         console.error('专家图布局算法应用失败:', error);
