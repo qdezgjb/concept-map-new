@@ -844,12 +844,15 @@ function calculatePolylinePath(link, nodes, allLinks = null) {
     // 判断节点间的层次关系
     const isHierarchical = window.isHierarchicalConnection(source, target, nodes, [link]);
     
+    // 🔴 检查是否为用户自行创建的同级连接（不需要检测层级，直接使用弧线）
+    const isUserCreatedSameLayer = link.isUserCreatedSameLayer === true;
+    
     // 检测同层连接（两个节点在同一层）
     const isSameLayer = source.layer !== undefined && target.layer !== undefined && source.layer === target.layer;
     
     let startX, startY, endX, endY;
     
-    if (isHierarchical) {
+    if (isHierarchical && !isUserCreatedSameLayer) {
         // 层次连接：正常连接（从上到下：源节点下边，目标节点上边；从下到上：源节点上边，目标节点下边）
         if (target.y > source.y) {
             // 目标节点在下方：从源节点下边连接到目标节点上边
@@ -870,6 +873,11 @@ function calculatePolylinePath(link, nodes, allLinks = null) {
         startY = source.y + sourceHeight / 2;
         endX = target.x;
         endY = target.y + targetHeight / 2;
+    }
+    
+    // 🔴 如果是用户自行创建的同级连接，直接使用圆弧连线（向下弯曲），不需要检测层级
+    if (isUserCreatedSameLayer) {
+        return calculateCurvedPath(startX, startY, endX, endY, false); // false表示向下弯曲
     }
     
     // 如果是同层连接，使用圆弧连线（向下弯曲）

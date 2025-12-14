@@ -482,9 +482,9 @@ function assignCoordinates(nodes, orderedLevels, width, height, links = []) {
     const totalContentHeight = focusQuestionHeight + focusToLayer1Spacing + totalSpacing;
     
     // 整体布局位置设置
-    // 焦点问题框的Y坐标设置为30，距离上边界有一定间距
+    // 焦点问题框的Y坐标设置为80，距离上边界有一定间距
     // viewBox的Y起始位置设置为0，焦点问题框会显示在顶部区域
-    const focusQuestionY = 30; // 焦点问题的Y坐标，距离顶部30px
+    const focusQuestionY = 80; // 焦点问题的Y坐标，距离顶部80px
     const topMargin = 30; // 上边距为30px
     const bottomMargin = 50; // 下边距固定为50px，不再居中
     

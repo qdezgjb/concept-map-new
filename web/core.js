@@ -45,13 +45,7 @@ function cleanup() {
 function initializePage() {
     console.log('开始初始化页面...');
     
-    // 禁用导出按钮（初始状态）
-    if (window.exportBtn) {
-        window.exportBtn.disabled = true;
-        console.log('导出按钮已禁用');
-    } else {
-        console.error('exportBtn 元素未找到');
-    }
+    // 🔴 导出按钮已删除，不再需要禁用
     
     // 编辑工具栏现在在control-bar中，不需要单独设置
     
@@ -71,7 +65,9 @@ function initializePage() {
     }
     
     // 初始化状态栏
-    updateStatusBar({ nodes: [], links: [] });
+    if (typeof window.updateStatusBar === 'function') {
+        window.updateStatusBar({ nodes: [], links: [] });
+    }
     console.log('状态栏已初始化');
     
     // 初始化历史记录按钮
@@ -4952,7 +4948,9 @@ function resetView() {
     }
     
     // 重置状态栏
-    updateStatusBar({ nodes: [], links: [] });
+    if (typeof window.updateStatusBar === 'function') {
+        window.updateStatusBar({ nodes: [], links: [] });
+    }
     
     // 清空历史记录
     clearHistory();
@@ -5572,7 +5570,9 @@ function clearPreviousConceptMap() {
     currentGraphData = { nodes: [], links: [] };
     
     // 重置状态栏
-    updateStatusBar({ nodes: [], links: [] });
+    if (typeof window.updateStatusBar === 'function') {
+        window.updateStatusBar({ nodes: [], links: [] });
+    }
     
     // 清空历史记录
     clearHistory();
@@ -5643,6 +5643,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 🔴 新增按钮
     window.addFocusQuestionBtn = document.getElementById('addFocusQuestionBtn');
     window.addAggregatedLinkBtn = document.getElementById('addAggregatedLinkBtn');
+    window.addSameLayerLinkBtn = document.getElementById('addSameLayerLinkBtn');
     window.addSameLayerAggregatedLinkBtn = document.getElementById('addSameLayerAggregatedLinkBtn');
     
     console.log('编辑工具栏元素获取结果:');
@@ -5654,6 +5655,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('editLinkBtn:', window.editLinkBtn);
     console.log('addFocusQuestionBtn:', window.addFocusQuestionBtn);
     console.log('addAggregatedLinkBtn:', window.addAggregatedLinkBtn);
+    console.log('addSameLayerLinkBtn:', window.addSameLayerLinkBtn);
     console.log('addSameLayerAggregatedLinkBtn:', window.addSameLayerAggregatedLinkBtn);
     
     // 当前流程元素（全局）
@@ -5980,6 +5982,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    if (window.addSameLayerLinkBtn) {
+        window.addSameLayerLinkBtn.addEventListener('click', function() {
+            console.log('同级连接按钮被点击');
+            addSameLayerLink();
+        });
+    }
+    
     if (window.addSameLayerAggregatedLinkBtn) {
         window.addSameLayerAggregatedLinkBtn.addEventListener('click', function() {
             console.log('同级聚合连接按钮被点击');
@@ -6114,36 +6123,53 @@ document.addEventListener('DOMContentLoaded', function() {
 
 /**
  * 添加焦点问题
+ * 创建一个新的概念图（如果还没有），并显示一个空的焦点问题框供用户编辑
  */
 function addFocusQuestion() {
+    // 确保概念图已初始化
     if (!window.currentGraphData) {
-        showMessage('请先创建概念图', 'warning');
-        return;
+        window.currentGraphData = { 
+            nodes: [], 
+            links: [],
+            layoutType: 'straight'
+        };
     }
     
-    const currentFocusQuestion = window.focusQuestion ? window.focusQuestion.replace('焦点问题：', '') : '';
-    const input = prompt('请输入焦点问题：', currentFocusQuestion);
+    // 显示概念图展示区域
+    const conceptMapDisplay = document.querySelector('.concept-map-display');
+    if (conceptMapDisplay) {
+        conceptMapDisplay.style.display = 'flex';
+    }
     
-    if (input && input.trim()) {
-        window.focusQuestion = `焦点问题：${input.trim()}`;
+    // 隐藏占位符
+    if (window.graphPlaceholder) {
+        window.graphPlaceholder.style.display = 'none';
+    }
+    
+    // 设置空的焦点问题
+    window.focusQuestion = '焦点问题：';
+    
+    // 绘制图形（即使没有节点，也要显示SVG）
+    if (typeof window.drawGraph === 'function' && window.currentGraphData) {
+        window.drawGraph(window.currentGraphData);
+    }
+    
+    // 显示焦点问题框
+    if (typeof window.displayFocusQuestion === 'function') {
+        window.displayFocusQuestion();
         
-        // 重新绘制图形以显示焦点问题
-        if (typeof window.drawGraph === 'function' && window.currentGraphData) {
-            window.drawGraph(window.currentGraphData);
-        }
-        
-        // 显示焦点问题
-        if (typeof window.displayFocusQuestion === 'function') {
-            window.displayFocusQuestion();
-        }
-        
-        showMessage('焦点问题已添加', 'success');
+        // 延迟一下，确保焦点问题框已经渲染，然后自动触发编辑模式
+        setTimeout(() => {
+            if (typeof window.editFocusQuestionText === 'function') {
+                window.editFocusQuestionText();
+            }
+        }, 100);
     }
 }
 
 /**
  * 添加聚合连接
- * 提示用户选择源节点和目标节点，然后创建聚合连接
+ * 进入拖拽式聚合连接创建模式（默认两个分支）
  */
 function addAggregatedLink() {
     if (!window.currentGraphData || window.currentGraphData.nodes.length < 2) {
@@ -6151,14 +6177,61 @@ function addAggregatedLink() {
         return;
     }
     
-    showMessage('聚合连接功能：请先选择两个或多个节点，然后系统会自动检测并创建聚合连接', 'info');
-    // 注意：聚合连接通常是根据现有连线自动检测的，这里主要是提示用户
-    // 实际实现可能需要用户选择多个目标节点，然后系统自动创建聚合连接
+    // 🔴 检查是否已经在聚合连接模式中（通过按钮文本和全局状态判断）
+    const btn = document.getElementById('addAggregatedLinkBtn');
+    const isInMode = (btn && btn.textContent === '取消连线') || 
+                     (window.currentLinkCreationType === 'aggregated');
+    
+    if (isInMode) {
+        // 如果已经在聚合连接模式中，退出模式
+        if (typeof window.exitClickLinkCreationMode === 'function') {
+            window.exitClickLinkCreationMode();
+        }
+        return;
+    }
+    
+    // 调用拖拽式连线创建功能
+    if (typeof window.enterDragLinkCreationMode === 'function') {
+        window.enterDragLinkCreationMode('aggregated');
+    } else {
+        showMessage('连线创建功能未初始化', 'error');
+    }
+}
+
+/**
+ * 添加同级连接
+ * 进入拖拽式同级连接创建模式（连接同一层级的两个节点）
+ */
+function addSameLayerLink() {
+    if (!window.currentGraphData || window.currentGraphData.nodes.length < 2) {
+        showMessage('需要至少两个节点才能添加同级连接', 'warning');
+        return;
+    }
+    
+    // 🔴 检查是否已经在同级连接模式中（通过按钮文本和全局状态判断）
+    const btn = document.getElementById('addSameLayerLinkBtn');
+    const isInMode = (btn && btn.textContent === '取消连线') || 
+                     (window.currentLinkCreationType === 'sameLayer');
+    
+    if (isInMode) {
+        // 如果已经在同级连接模式中，退出模式
+        if (typeof window.exitClickLinkCreationMode === 'function') {
+            window.exitClickLinkCreationMode();
+        }
+        return;
+    }
+    
+    // 调用拖拽式连线创建功能
+    if (typeof window.enterDragLinkCreationMode === 'function') {
+        window.enterDragLinkCreationMode('sameLayer');
+    } else {
+        showMessage('连线创建功能未初始化', 'error');
+    }
 }
 
 /**
  * 添加同级聚合连接
- * 提示用户选择同级节点，然后创建同级聚合连接
+ * 进入拖拽式同级聚合连接创建模式（默认两个分支）
  */
 function addSameLayerAggregatedLink() {
     if (!window.currentGraphData || window.currentGraphData.nodes.length < 2) {
@@ -6166,8 +6239,24 @@ function addSameLayerAggregatedLink() {
         return;
     }
     
-    showMessage('同级聚合连接功能：请先选择两个或多个同级节点，然后系统会自动检测并创建同级聚合连接', 'info');
-    // 注意：同级聚合连接通常是根据现有连线自动检测的，这里主要是提示用户
-    // 实际实现可能需要用户选择多个同级节点，然后系统自动创建同级聚合连接
+    // 🔴 检查是否已经在同级聚合连接模式中（通过按钮文本和全局状态判断）
+    const btn = document.getElementById('addSameLayerAggregatedLinkBtn');
+    const isInMode = (btn && btn.textContent === '取消连线') || 
+                     (window.currentLinkCreationType === 'sameLayerAggregated');
+    
+    if (isInMode) {
+        // 如果已经在同级聚合连接模式中，退出模式
+        if (typeof window.exitClickLinkCreationMode === 'function') {
+            window.exitClickLinkCreationMode();
+        }
+        return;
+    }
+    
+    // 调用拖拽式连线创建功能
+    if (typeof window.enterDragLinkCreationMode === 'function') {
+        window.enterDragLinkCreationMode('sameLayerAggregated');
+    } else {
+        showMessage('连线创建功能未初始化', 'error');
+    }
 }
 

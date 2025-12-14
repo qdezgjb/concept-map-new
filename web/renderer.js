@@ -230,7 +230,9 @@ function displayConceptMap(graphData) {
         // 依赖绘制时的直接事件绑定，去掉统一延迟绑定
         // bindGraphEvents();
         
-        exportBtn.disabled = false;
+        if (window.exportBtn) {
+            window.exportBtn.disabled = false;
+        }
         updateStatusBar(currentGraphData);
         saveToHistory(currentGraphData);
     }
@@ -303,17 +305,32 @@ function drawGraph(data) {
         
         // 过滤掉已聚合的连线
         const regularLinks = data.links.filter(link => {
-            const linkIdStr = link.id || `link-${link.source}-${link.target}`;
+            // 🔴 使用对象引用直接比较，更可靠
             // 排除普通聚合连接
             const inAggregate = aggregatedLinks.some(group => 
-                group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
+                group.links.includes(link) || 
+                group.links.some(l => l.id === link.id && l.id !== undefined)
             );
             // 排除同级聚合连接
             const inSameLayerAggregate = sameLayerAggregatedLinks.some(group => 
-                group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
+                group.links.includes(link) || 
+                group.links.some(l => l.id === link.id && l.id !== undefined)
             );
-            return !inAggregate && !inSameLayerAggregate;
+            
+            // 🔴 额外检查：如果连线标记为同级聚合连接，也应该被过滤掉
+            const isMarkedAsSameLayerAggregated = link.isSameLayerAggregated === true;
+            
+            if (inAggregate || inSameLayerAggregate || isMarkedAsSameLayerAggregated) {
+                console.log('drawGraph: 过滤掉聚合连接:', link.id, {
+                    inAggregate, inSameLayerAggregate, isMarkedAsSameLayerAggregated
+                });
+                return false;
+            }
+            
+            return true;
         });
+        
+        console.log('drawGraph: 过滤后的普通连线数量:', regularLinks.length, '总连线数:', data.links.length);
         
         // 先渲染普通聚合连接
         const nodeById = new Map(data.nodes.map(n => [n.id, n]));
@@ -328,6 +345,7 @@ function drawGraph(data) {
         
         // 再渲染普通连线
         regularLinks.forEach(link => {
+            
             // 🔴 支持支架模式：连线可能连接到占位符（被移除的节点）
             let source = nodeById.get(link.source);
             let target = nodeById.get(link.target);
@@ -397,11 +415,13 @@ function drawGraph(data) {
                 const controlPoint = pathData.controlPoint || waypoints[1];
                 
                 // 检查是否为同级连接（同层连接）
+                // 🔴 优先检查用户自行创建的同级连接标志
+                const isUserCreatedSameLayer = link.isUserCreatedSameLayer === true;
                 const sourceNode = data.nodes.find(n => n.id === link.source);
                 const targetNode = data.nodes.find(n => n.id === link.target);
-                const isSameLayer = sourceNode && targetNode && 
+                const isSameLayer = isUserCreatedSameLayer || (sourceNode && targetNode && 
                     sourceNode.layer !== undefined && targetNode.layer !== undefined && 
-                    sourceNode.layer === targetNode.layer;
+                    sourceNode.layer === targetNode.layer);
                 
                 if (isSameLayer) {
                     // 同级连接：箭头位置应该在目标节点的连接点（endX, endY）
@@ -687,6 +707,18 @@ function drawGraph(data) {
 
             // 直接绑定节点事件（点击选中、双击编辑、按下开始拖拽）
             g.addEventListener('click', function(e) {
+                // 🔴 如果处于连线创建模式，优先处理连线创建
+                if (window.currentLinkCreationType && typeof window.handleNodeClickForLink === 'function') {
+                    // 调用连线创建处理函数
+                    const result = window.handleNodeClickForLink(e);
+                    // 如果处理函数返回true，说明已经处理了，不需要继续执行selectNode
+                    if (result === true) {
+                        e.stopPropagation();
+                        return;
+                    }
+                    // 如果返回false，说明不在连线创建模式，继续执行selectNode
+                }
+                
                 e.stopPropagation();
                 selectNode(node.id);
             });
@@ -1136,7 +1168,8 @@ function updateConnectedLinks(nodeId) {
         
         // 更新同级聚合连接（重新绘制，因为位置计算较复杂）
         relatedSameLayerGroups.forEach(group => {
-            const uniqueKey = `same-layer-${group.label}-${group.layer}`;
+            const layerStr = group.layer !== null && group.layer !== undefined ? group.layer : 'user-created';
+            const uniqueKey = `same-layer-${group.sourceId}-${group.label}-${layerStr}`;
             const aggregateGroup = svg.querySelector(`g[data-same-layer-aggregate-group="true"][data-aggregate-key="${uniqueKey}"]`);
             if (aggregateGroup) {
                 // 移除旧的聚合连接组
@@ -1146,7 +1179,10 @@ function updateConnectedLinks(nodeId) {
             const nodeById = new Map(currentGraphData.nodes.map(n => [n.id, n]));
             drawSameLayerAggregatedLink(group, nodeById, currentGraphData.nodes);
         });
-
+        
+        // 🔴 修复：初始化简化聚合连接组（如果存在相关函数）
+        const relatedSimpleGroups = [];
+        
         // 更新普通连线（排除已聚合的连线）
         relatedLinks.forEach(link => {
             const linkIdStr = link.id || `link-${link.source}-${link.target}`;
@@ -1158,8 +1194,12 @@ function updateConnectedLinks(nodeId) {
             const isInSameLayerAggregate = sameLayerAggregatedLinks.some(group => 
                 group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
             );
+            // 🔴 检查这个连线是否属于某个简化聚合连接组
+            const isInSimpleAggregate = relatedSimpleGroups.some(group => 
+                group.links.some(l => (l.id || `link-${l.source}-${l.target}`) === linkIdStr)
+            );
             
-            if (!isInAggregate && !isInSameLayerAggregate) {
+            if (!isInAggregate && !isInSameLayerAggregate && !isInSimpleAggregate) {
                 const linkGroup = svg.querySelector(`g[data-link-id="${linkIdStr}"]`);
                 if (linkGroup) {
                     // 检测连接线是否与其他节点重合
@@ -1474,11 +1514,13 @@ function redrawSingleLink(link) {
             const controlPoint = pathData.controlPoint;
             
             // 检查是否为同级连接（同层连接）
+            // 🔴 优先检查用户自行创建的同级连接标志
+            const isUserCreatedSameLayer = link.isUserCreatedSameLayer === true;
             const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
             const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
-            const isSameLayer = sourceNode && targetNode && 
+            const isSameLayer = isUserCreatedSameLayer || (sourceNode && targetNode && 
                 sourceNode.layer !== undefined && targetNode.layer !== undefined && 
-                sourceNode.layer === targetNode.layer;
+                sourceNode.layer === targetNode.layer);
             
             const positions = calculateCurvedLinkPositions(
                 startX, startY, endX, endY, 
@@ -1700,11 +1742,13 @@ function updateLinkPosition(linkGroup, link) {
             const controlPoint = pathData.controlPoint;
             
             // 检查是否为同级连接（同层连接）
+            // 🔴 优先检查用户自行创建的同级连接标志
+            const isUserCreatedSameLayer = link.isUserCreatedSameLayer === true;
             const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
             const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
-            const isSameLayer = sourceNode && targetNode && 
+            const isSameLayer = isUserCreatedSameLayer || (sourceNode && targetNode && 
                 sourceNode.layer !== undefined && targetNode.layer !== undefined && 
-                sourceNode.layer === targetNode.layer;
+                sourceNode.layer === targetNode.layer);
             
             const positions = calculateCurvedLinkPositions(
                 startX, startY, endX, endY, 
@@ -1915,11 +1959,13 @@ function redrawAllLinks() {
                 const controlPoint = pathData.controlPoint || waypoints[1];
                 
                 // 检查是否为同级连接（同层连接）
+                // 🔴 优先检查用户自行创建的同级连接标志
+                const isUserCreatedSameLayer = link.isUserCreatedSameLayer === true;
                 const sourceNode = currentGraphData.nodes.find(n => n.id === link.source);
                 const targetNode = currentGraphData.nodes.find(n => n.id === link.target);
-                const isSameLayer = sourceNode && targetNode && 
+                const isSameLayer = isUserCreatedSameLayer || (sourceNode && targetNode && 
                     sourceNode.layer !== undefined && targetNode.layer !== undefined && 
-                    sourceNode.layer === targetNode.layer;
+                    sourceNode.layer === targetNode.layer);
                 
                 const positions = calculateCurvedLinkPositions(
                     startX, startY, endX, endY, 
@@ -2491,20 +2537,33 @@ function displayFocusQuestion() {
         let focusBoxY;
         
         if (window.focusQuestionY !== undefined) {
-            // 直接使用布局算法计算的Y坐标（5）
-            // viewBox的Y起始位置是0，所以焦点问题框会显示在顶部
-            focusBoxY = window.focusQuestionY; // 应该是5
+            // 直接使用布局算法计算的Y坐标（80）
+            // viewBox的Y起始位置是0，所以焦点问题框会显示在顶部区域
+            focusBoxY = window.focusQuestionY; // 应该是80
             console.log('使用布局算法计算的焦点问题Y坐标:', window.focusQuestionY);
             console.log('ViewBox信息:', { viewBoxX, viewBoxY, viewBoxWidth, viewBoxHeight });
         } else {
-            // 备用方案：使用viewBox内的固定值，紧贴顶部
-            focusBoxY = viewBoxY + 5; // 距离顶部5px
+            // 备用方案：使用viewBox内的固定值，距离顶部有一定间距
+            focusBoxY = viewBoxY + 80; // 距离顶部80px
             console.log('使用默认焦点问题位置:', focusBoxY);
         }
         
         // 计算焦点问题框的尺寸和位置（考虑viewBox的偏移）
+        // 检查是否只有"焦点问题："前缀，如果是则使用提示词来计算宽度
+        const prefixes = ['焦点问题：', '焦点问题:', 'Focus Question: ', 'Focus Question:'];
+        let isPlaceholder = false;
+        let displayText = window.focusQuestion || '';
+        
+        for (const prefix of prefixes) {
+            if (displayText === prefix || displayText.trim() === prefix.trim()) {
+                displayText = '请输入您的焦点问题';
+                isPlaceholder = true;
+                break;
+            }
+        }
+        
         // 根据文字长度动态计算宽度，最大不超过viewBox宽度的90%
-        const textLength = (window.focusQuestion || '').length;
+        const textLength = displayText.length;
         const estimatedTextWidth = textLength * 32; // 估算文字宽度（每字约32px）
         const maxFocusBoxWidth = viewBoxWidth * 0.9; // 最大宽度为viewBox的90%
         const focusBoxWidth = Math.min(maxFocusBoxWidth, Math.max(600, estimatedTextWidth + 150)); // 文字宽度+左右边距
@@ -2528,19 +2587,26 @@ function displayFocusQuestion() {
         
     // 创建焦点问题文字
     const focusText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    focusText.setAttribute('x', viewBoxX + viewBoxWidth / 2); // 水平居中，考虑viewBox偏移
-    focusText.setAttribute('y', focusBoxY + focusBoxHeight / 2); // 垂直居中
+    focusText.setAttribute('x', focusBoxX + focusBoxWidth / 2); // 在框内水平居中
+    focusText.setAttribute('y', focusBoxY + focusBoxHeight / 2); // 在框内垂直居中
     focusText.setAttribute('text-anchor', 'middle');
     focusText.setAttribute('dominant-baseline', 'middle');
     focusText.setAttribute('font-size', '28');
-    focusText.setAttribute('font-weight', '600');
-    focusText.setAttribute('fill', '#2c3e50');
+    
+    // 根据是否为占位符设置样式
+    if (isPlaceholder) {
+        focusText.setAttribute('fill', '#999999'); // 提示词使用灰色
+        focusText.setAttribute('font-weight', '400'); // 提示词使用正常字重
+    } else {
+        focusText.setAttribute('fill', '#2c3e50'); // 正常文本使用深灰色
+        focusText.setAttribute('font-weight', '600'); // 正常文本使用粗体
+    }
     
     // 检测文字宽度并自动调整以适应文本框
     const tempText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     tempText.setAttribute('font-size', '28');
-    tempText.setAttribute('font-weight', '600');
-    tempText.textContent = window.focusQuestion;
+    tempText.setAttribute('font-weight', isPlaceholder ? '400' : '600');
+    tempText.textContent = displayText;
     focusGroup.appendChild(tempText);
     
     const textBBox = tempText.getBBox();
@@ -2555,7 +2621,7 @@ function displayFocusQuestion() {
         console.log(`焦点问题文字过长，字体大小从28px调整为${finalFontSize}px`);
     }
     
-    focusText.textContent = window.focusQuestion;
+    focusText.textContent = displayText;
     focusGroup.removeChild(tempText);
         
         // 将元素添加到组中
@@ -2709,7 +2775,11 @@ function editFocusQuestionText() {
         return;
     }
     
-    const svg = document.querySelector('.concept-graph');
+    // 支持普通概念图和支架概念图
+    let svg = document.querySelector('.scaffold-concept-graph');
+    if (!svg) {
+        svg = document.querySelector('.concept-graph');
+    }
     const focusGroup = svg ? svg.querySelector('#focus-question') : null;
     if (!focusGroup) {
         showMessage('无法找到焦点问题元素', 'error');
@@ -2726,13 +2796,36 @@ function editFocusQuestionText() {
     const rectWidth = parseFloat(bgRect.getAttribute('width'));
     const rectHeight = parseFloat(bgRect.getAttribute('height'));
     
-    // 获取SVG的位置
+    // 获取SVG的位置和尺寸
     const svgRect = svg.getBoundingClientRect();
     
-    // 计算输入框在页面中的绝对位置
-    const inputLeft = svgRect.left + rectX + 20; // 左侧留20px边距
-    const inputTop = svgRect.top + rectY + (rectHeight - 40) / 2; // 垂直居中
-    const inputWidth = rectWidth - 40; // 左右各留20px边距
+    // 获取SVG的viewBox信息，用于坐标转换
+    const viewBox = svg.getAttribute('viewBox');
+    let viewBoxX = 0, viewBoxY = 0, viewBoxWidth = svgRect.width, viewBoxHeight = svgRect.height;
+    if (viewBox) {
+        const viewBoxParts = viewBox.split(' ');
+        if (viewBoxParts.length === 4) {
+            viewBoxX = parseFloat(viewBoxParts[0]);
+            viewBoxY = parseFloat(viewBoxParts[1]);
+            viewBoxWidth = parseFloat(viewBoxParts[2]);
+            viewBoxHeight = parseFloat(viewBoxParts[3]);
+        }
+    }
+    
+    // 计算输入框的尺寸（使用焦点问题框的宽度，但留出边距）
+    const inputWidth = Math.min(rectWidth - 40, 600); // 左右各留20px边距，最大600px
+    const inputHeight = 40;
+    
+    // 将SVG坐标转换为页面坐标
+    // 计算焦点问题框中心在SVG中的坐标
+    const rectCenterX = rectX + rectWidth / 2;
+    const rectCenterY = rectY + rectHeight / 2;
+    
+    // 将SVG坐标转换为页面坐标
+    const scaleX = svgRect.width / viewBoxWidth;
+    const scaleY = svgRect.height / viewBoxHeight;
+    const inputLeft = svgRect.left + (rectCenterX - viewBoxX) * scaleX - inputWidth / 2;
+    const inputTop = svgRect.top + (rectCenterY - viewBoxY) * scaleY - inputHeight / 2;
     
     // 提取纯文本（去掉"焦点问题："前缀）
     let currentText = window.focusQuestion;
@@ -2748,6 +2841,7 @@ function editFocusQuestionText() {
     const input = document.createElement('input');
     input.type = 'text';
     input.value = currentText;
+    input.placeholder = '请输入您的焦点问题'; // 添加提示词
     input.style.cssText = `
         position: fixed;
         left: ${inputLeft}px;
@@ -2776,8 +2870,30 @@ function editFocusQuestionText() {
     // 添加窗口大小变化和滚动监听器
     const updatePosition = () => {
         const newSvgRect = svg.getBoundingClientRect();
-        const newInputLeft = newSvgRect.left + rectX + 20;
-        const newInputTop = newSvgRect.top + rectY + (rectHeight - 40) / 2;
+        
+        // 重新获取viewBox信息
+        const newViewBox = svg.getAttribute('viewBox');
+        let newViewBoxX = 0, newViewBoxY = 0, newViewBoxWidth = newSvgRect.width, newViewBoxHeight = newSvgRect.height;
+        if (newViewBox) {
+            const viewBoxParts = newViewBox.split(' ');
+            if (viewBoxParts.length === 4) {
+                newViewBoxX = parseFloat(viewBoxParts[0]);
+                newViewBoxY = parseFloat(viewBoxParts[1]);
+                newViewBoxWidth = parseFloat(viewBoxParts[2]);
+                newViewBoxHeight = parseFloat(viewBoxParts[3]);
+            }
+        }
+        
+        // 计算焦点问题框中心在SVG中的坐标
+        const rectCenterX = rectX + rectWidth / 2;
+        const rectCenterY = rectY + rectHeight / 2;
+        
+        // 将SVG坐标转换为页面坐标
+        const scaleX = newSvgRect.width / newViewBoxWidth;
+        const scaleY = newSvgRect.height / newViewBoxHeight;
+        const newInputLeft = newSvgRect.left + (rectCenterX - newViewBoxX) * scaleX - inputWidth / 2;
+        const newInputTop = newSvgRect.top + (rectCenterY - newViewBoxY) * scaleY - inputHeight / 2;
+        
         input.style.left = `${newInputLeft}px`;
         input.style.top = `${newInputTop}px`;
     };
@@ -2793,14 +2909,21 @@ function editFocusQuestionText() {
         window.removeEventListener('scroll', updatePosition, true);
         
         const newText = input.value.trim();
-        if (newText && newText !== currentText) {
+        // 允许空输入，只要内容有变化就更新
+        if (newText !== currentText) {
             // 更新焦点问题（保留"焦点问题："前缀）
-            window.focusQuestion = `焦点问题：${newText}`;
+            if (newText) {
+                window.focusQuestion = `焦点问题：${newText}`;
+            } else {
+                window.focusQuestion = '焦点问题：';
+            }
             
             // 重新显示焦点问题
             displayFocusQuestion();
             
-            showMessage('焦点问题已更新', 'success');
+            if (newText) {
+                showMessage('焦点问题已更新', 'success');
+            }
         }
         document.body.removeChild(input);
     };
@@ -2898,6 +3021,11 @@ function detectAggregatedLinks(links) {
     const groups = new Map();
     
     links.forEach(link => {
+        // 🔴 排除标记为同级聚合连接的连线，它们由 detectSameLayerAggregatedLinks 处理
+        if (link.isSameLayerAggregated === true) {
+            return;
+        }
+        
         const label = link.label || '双击编辑';
         // 只对非空且有意义的连接词进行聚合（排除默认值）
         if (label && label !== '双击编辑' && label.trim().length > 0) {
@@ -3281,25 +3409,50 @@ function detectSameLayerAggregatedLinks(links, nodes) {
     const groups = new Map();
     const nodeById = new Map(nodes.map(n => [n.id, n]));
     
+    // 🔴 检查是否是用户自行创建模式：如果所有节点都没有layer属性，或者大部分节点没有layer属性，则认为是用户自行创建模式
+    const nodesWithLayer = nodes.filter(n => n.layer !== undefined && n.layer !== null);
+    const isUserCreatedMode = nodesWithLayer.length === 0 || nodesWithLayer.length < nodes.length * 0.5;
+    
     links.forEach(link => {
         const label = link.label || '双击编辑';
-        // 只对非空且有意义的连接词进行聚合
+        // 🔴 只对标记为同级聚合连接的连线进行聚合，或者连接词相同且源节点相同的连线
+        // 排除"双击编辑"和空字符串，只聚合有意义的连接词
         if (label && label !== '双击编辑' && label.trim().length > 0) {
             const sourceNode = nodeById.get(link.source);
             const targetNode = nodeById.get(link.target);
             
-            // 检查是否为同级节点（同一层级）
-            if (sourceNode && targetNode && 
-                sourceNode.layer !== undefined && targetNode.layer !== undefined &&
-                sourceNode.layer === targetNode.layer) {
-                
-                // 使用连接词作为分组键（同级节点可以按连接词聚合）
-                const key = `${label}`;
+            if (!sourceNode || !targetNode) return;
+            
+            // 🔴 检查是否标记为同级聚合连接
+            const isMarkedAsAggregated = link.isSameLayerAggregated === true;
+            
+            // 🔴 用户自行创建模式下不需要进行层级检测，其他模式需要检测层级
+            let shouldAggregate = false;
+            
+            if (isUserCreatedMode) {
+                // 用户自行创建模式：只有标记为同级聚合连接的连线才会被聚合
+                shouldAggregate = isMarkedAsAggregated;
+            } else {
+                // AI生成模式：检查是否为同层级节点，同层级的连接使用弧线聚合
+                if (sourceNode.layer !== undefined && targetNode.layer !== undefined &&
+                    sourceNode.layer === targetNode.layer) {
+                    shouldAggregate = true;
+                }
+                // 如果明确标记为同级聚合连接，也要聚合
+                if (isMarkedAsAggregated) {
+                    shouldAggregate = true;
+                }
+            }
+            
+            if (shouldAggregate) {
+                // 使用"源节点ID+连接词"作为分组键，确保同一组的连线共享同一个源节点
+                const key = `${link.source}_${label}`;
                 if (!groups.has(key)) {
                     groups.set(key, {
+                        sourceId: link.source,
                         label: label,
                         links: [],
-                        layer: sourceNode.layer
+                        layer: sourceNode.layer !== undefined ? sourceNode.layer : null
                     });
                 }
                 groups.get(key).links.push(link);
@@ -3307,13 +3460,14 @@ function detectSameLayerAggregatedLinks(links, nodes) {
         }
     });
     
-    // 只返回有2个或更多连线的组（需要聚合）
-    const aggregatedGroups = Array.from(groups.values()).filter(group => group.links.length >= 2);
+    // 返回所有同级连接组（包括单条连接，也使用弧线样式）
+    const aggregatedGroups = Array.from(groups.values()).filter(group => group.links.length >= 1);
     
-    console.log(`检测到 ${aggregatedGroups.length} 组同级聚合连接:`, aggregatedGroups.map(g => ({
+    console.log(`检测到 ${aggregatedGroups.length} 组同级连接 (用户自行创建模式: ${isUserCreatedMode}):`, aggregatedGroups.map(g => ({
         label: g.label,
         layer: g.layer,
-        count: g.links.length
+        count: g.links.length,
+        sourceId: g.sourceId
     })));
     
     return aggregatedGroups;
@@ -3321,6 +3475,8 @@ function detectSameLayerAggregatedLinks(links, nodes) {
 
 /**
  * 绘制同级节点之间的聚合连接
+ * 样式：从源节点底边中点出发，弧线向下弯曲，在中间断开放置连接词，
+ * 然后从连接词位置伸出多个弧线分支，连接到目标节点的底边中点
  * @param {Object} group - 聚合连接组 {label, links: [...], layer}
  * @param {Map} nodeById - 节点Map
  * @param {Array} allNodes - 所有节点数组
@@ -3398,59 +3554,144 @@ function drawSameLayerAggregatedLink(group, nodeById, allNodes) {
     const aggregateGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     aggregateGroup.setAttribute('data-same-layer-aggregate-group', 'true');
     aggregateGroup.setAttribute('data-label', group.label);
-    aggregateGroup.setAttribute('data-layer', group.layer);
-    const uniqueKey = `same-layer-${group.label}-${group.layer}`;
+    aggregateGroup.setAttribute('data-layer', group.layer !== null && group.layer !== undefined ? group.layer : 'user-created');
+    aggregateGroup.setAttribute('data-source-id', group.sourceId);
+    const uniqueKey = `same-layer-${group.sourceId}-${group.label}-${group.layer !== null && group.layer !== undefined ? group.layer : 'user-created'}`;
     aggregateGroup.setAttribute('data-aggregate-key', uniqueKey);
     
-    // 计算连接词标签位置（所有源节点和目标节点的中心点）
-    const allRelatedNodes = [...sourceNodes, ...targetNodes];
-    const centerX = allRelatedNodes.reduce((sum, n) => sum + n.x, 0) / allRelatedNodes.length;
-    const avgY = allRelatedNodes.reduce((sum, n) => {
+    // 获取源节点（假设所有连线共享同一个源节点，取第一个）
+    const sourceNode = sourceNodes[0];
+    if (!sourceNode) return;
+    
+    const sourceDim = getNodeDimensions(sourceNode);
+    // 源节点底边中点
+    const sourceX = sourceNode.x;
+    const sourceY = sourceNode.y + sourceDim.height / 2;
+    
+    // 计算所有目标节点的底边中点位置
+    const targetPositions = targetNodes.map(n => {
         const dim = getNodeDimensions(n);
-        return sum + (n.y + dim.height / 2);
-    }, 0) / allRelatedNodes.length;
-    
-    // 标签位置在节点下方，向下偏移一定距离
-    const labelY = avgY + 80; // 距离节点底部80px
-    const labelX = centerX;
-    
-    // 计算标签宽度
-    const labelWidth = Math.max(60, group.label.length * 12);
-    const textGap = Math.max(30, labelWidth * 0.6);
-    
-    // 为每个源节点绘制弧线到标签
-    sourceNodes.forEach(sourceNode => {
-        const sourceDim = getNodeDimensions(sourceNode);
-        const sourceBottomX = sourceNode.x;
-        const sourceBottomY = sourceNode.y + sourceDim.height / 2;
-        
-        // 计算弧线控制点（向下弯曲）
-        const controlY = (sourceBottomY + labelY) / 2;
-        const controlX = sourceBottomX + (labelX - sourceBottomX) * 0.5;
-        
-        // 计算弧线在标签前的断开位置
-        const dx = labelX - sourceBottomX;
-        const dy = labelY - sourceBottomY;
-        const totalDist = Math.sqrt(dx * dx + dy * dy);
-        const normalizedDx = dx / totalDist;
-        const normalizedDy = dy / totalDist;
-        
-        const gapStartDist = totalDist - textGap / 2;
-        const gapStartX = sourceBottomX + normalizedDx * gapStartDist;
-        const gapStartY = sourceBottomY + normalizedDy * gapStartDist;
-        
-        // 绘制从源节点到标签前的弧线（使用二次贝塞尔曲线）
-        const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        const pathData1 = `M ${sourceBottomX} ${sourceBottomY} Q ${controlX} ${controlY} ${gapStartX} ${gapStartY}`;
-        path1.setAttribute('d', pathData1);
-        path1.setAttribute('stroke', '#aaa');
-        path1.setAttribute('stroke-width', '2');
-        path1.setAttribute('fill', 'none');
-        path1.setAttribute('stroke-linecap', 'round');
-        aggregateGroup.appendChild(path1);
+        return {
+            node: n,
+            x: n.x,
+            y: n.y + dim.height / 2  // 目标节点底边中点
+        };
     });
     
-    // 添加连接词标签
+    // ============ 单条同级连接：使用简单弧线样式 ============
+    if (targetPositions.length === 1) {
+        const targetPos = targetPositions[0];
+        const targetX = targetPos.x;
+        const targetY = targetPos.y;
+        
+        // 计算弧线控制点（在两点下方）
+        const midX = (sourceX + targetX) / 2;
+        const midY = Math.max(sourceY, targetY);
+        const curveOffset = 60; // 弧线向下弯曲的程度
+        const controlY = midY + curveOffset;
+        
+        // 绘制弧线
+        const arcPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const arcPathData = `M ${sourceX} ${sourceY} Q ${midX} ${controlY} ${targetX} ${targetY}`;
+        arcPath.setAttribute('d', arcPathData);
+        arcPath.setAttribute('stroke', '#aaa');
+        arcPath.setAttribute('stroke-width', '2');
+        arcPath.setAttribute('fill', 'none');
+        arcPath.setAttribute('stroke-linecap', 'round');
+        
+        const link = group.links[0];
+        const linkIdStr = link ? (link.id || `link-${link.source}-${link.target}`) : '';
+        if (linkIdStr) {
+            arcPath.setAttribute('data-link-id', linkIdStr);
+        }
+        aggregateGroup.appendChild(arcPath);
+        
+        // 添加连接词标签（在弧线中点）
+        const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        // 计算弧线上的中点位置（二次贝塞尔曲线 t=0.5）
+        const labelPosX = 0.25 * sourceX + 0.5 * midX + 0.25 * targetX;
+        const labelPosY = 0.25 * sourceY + 0.5 * controlY + 0.25 * targetY;
+        labelText.setAttribute('x', labelPosX);
+        labelText.setAttribute('y', labelPosY - 5);
+        labelText.setAttribute('text-anchor', 'middle');
+        labelText.setAttribute('font-size', '12');
+        labelText.setAttribute('fill', '#333');
+        labelText.setAttribute('font-weight', '500');
+        labelText.setAttribute('pointer-events', 'all');
+        labelText.setAttribute('cursor', 'pointer');
+        labelText.textContent = group.label;
+        
+        // 添加标签背景
+        const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        const labelWidth = Math.max(30, group.label.length * 10);
+        labelBg.setAttribute('x', labelPosX - labelWidth / 2 - 4);
+        labelBg.setAttribute('y', labelPosY - 15);
+        labelBg.setAttribute('width', labelWidth + 8);
+        labelBg.setAttribute('height', 18);
+        labelBg.setAttribute('fill', 'white');
+        labelBg.setAttribute('rx', '3');
+        aggregateGroup.appendChild(labelBg);
+        aggregateGroup.appendChild(labelText);
+        
+        // 添加箭头
+        const arrowLength = 8;
+        const angle = Math.atan2(targetY - controlY, targetX - midX);
+        const arrowAngle1 = angle + Math.PI / 6;
+        const arrowAngle2 = angle - Math.PI / 6;
+        const arrowPoint1X = targetX - arrowLength * Math.cos(arrowAngle1);
+        const arrowPoint1Y = targetY - arrowLength * Math.sin(arrowAngle1);
+        const arrowPoint2X = targetX - arrowLength * Math.cos(arrowAngle2);
+        const arrowPoint2Y = targetY - arrowLength * Math.sin(arrowAngle2);
+        
+        const arrowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        arrowPath.setAttribute('d', `M ${arrowPoint1X} ${arrowPoint1Y} L ${targetX} ${targetY} L ${arrowPoint2X} ${arrowPoint2Y}`);
+        arrowPath.setAttribute('stroke', '#aaa');
+        arrowPath.setAttribute('stroke-width', '2');
+        arrowPath.setAttribute('fill', 'none');
+        arrowPath.setAttribute('stroke-linecap', 'round');
+        arrowPath.setAttribute('stroke-linejoin', 'round');
+        aggregateGroup.appendChild(arrowPath);
+        
+        svg.appendChild(aggregateGroup);
+        return; // 单条连接绘制完成，直接返回
+    }
+    
+    // ============ 多条同级聚合连接：使用分支样式 ============
+    // 计算连接词标签位置
+    // 标签位置在源节点右侧，稍微向下偏移
+    const allNodesY = [sourceY, ...targetPositions.map(p => p.y)];
+    const maxY = Math.max(...allNodesY);
+    
+    // 连接词位置：在源节点下方右侧，增大弧度
+    const curveDepth = 100; // 增大弧线向下弯曲的深度
+    const labelY = maxY + curveDepth;
+    const labelX = sourceX + 60; // 连接词在源节点右侧60px处（缩短距离）
+    
+    // 计算标签宽度
+    const labelWidth = Math.max(40, group.label.length * 10);
+    const textGapHalf = labelWidth / 2 + 10; // 断开距离的一半
+    
+    // ============ 绘制从源节点到连接词左侧的弧线 ============
+    // 连接词左侧的点（源节点连接线的终点）
+    const labelLeftX = labelX - textGapHalf;
+    const labelLeftY = labelY;
+    
+    // 使用二次贝塞尔曲线，单一控制点确保平滑无拐弯
+    // 控制点在源节点和终点连线的下方，形成平滑的向下弧线
+    const mainControlX = sourceX + (labelLeftX - sourceX) * 0.3;
+    const mainControlY = labelY + 30; // 控制点在终点下方，形成向下的弧线
+    
+    // 绘制从源节点到连接词左侧的弧线（二次贝塞尔曲线，保证平滑）
+    const mainPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const mainPathData = `M ${sourceX} ${sourceY} Q ${mainControlX} ${mainControlY} ${labelLeftX} ${labelLeftY}`;
+    mainPath.setAttribute('d', mainPathData);
+    mainPath.setAttribute('stroke', '#aaa');
+    mainPath.setAttribute('stroke-width', '2');
+    mainPath.setAttribute('fill', 'none');
+    mainPath.setAttribute('stroke-linecap', 'round');
+    aggregateGroup.appendChild(mainPath);
+    
+    // ============ 添加连接词标签 ============
     const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     labelText.setAttribute('x', labelX);
     labelText.setAttribute('y', labelY + 4);
@@ -3472,26 +3713,36 @@ function drawSameLayerAggregatedLink(group, nodeById, allNodes) {
     
     aggregateGroup.appendChild(labelText);
     
-    // 为每个目标节点绘制从标签到节点的弧线
-    targetNodes.forEach(targetNode => {
-        const targetDim = getNodeDimensions(targetNode);
-        const targetBottomX = targetNode.x;
-        const targetBottomY = targetNode.y + targetDim.height / 2;
+    // ============ 所有分支从连接词右侧的同一点出发 ============
+    // 连接词右侧的分支出发点（所有分支从这一点出发）
+    const branchStartX = labelX + textGapHalf;
+    const branchStartY = labelY;
+    
+    // 按目标节点的X坐标排序，用于分散控制点
+    const sortedTargets = [...targetPositions].sort((a, b) => a.x - b.x);
+    const totalTargets = sortedTargets.length;
+    
+    // 为每个目标节点绘制从分支出发点到节点的弧线
+    targetPositions.forEach((targetPos, index) => {
+        const targetNode = targetPos.node;
+        const targetX = targetPos.x;
+        const targetY = targetPos.y;
         
-        // 计算弧线控制点（向上弯曲）
-        const controlY = (labelY + targetBottomY) / 2;
-        const controlX = labelX + (targetBottomX - labelX) * 0.5;
+        // 计算这个目标在排序后的位置，用于分散控制点
+        const sortedIndex = sortedTargets.findIndex(t => t.node.id === targetNode.id);
         
-        // 计算弧线在标签后的起始位置
-        const dx = targetBottomX - labelX;
-        const dy = targetBottomY - labelY;
-        const totalDist = Math.sqrt(dx * dx + dy * dy);
-        const normalizedDx = dx / totalDist;
-        const normalizedDy = dy / totalDist;
+        // 根据目标节点位置分散控制点，避免重叠
+        // 使用三次贝塞尔曲线实现更平滑的分散效果
+        const spreadFactor = totalTargets > 1 ? (sortedIndex / (totalTargets - 1)) - 0.5 : 0;
+        const spreadOffset = spreadFactor * 80; // 分散偏移量
         
-        const gapEndDist = textGap / 2;
-        const gapEndX = labelX + normalizedDx * gapEndDist;
-        const gapEndY = labelY + normalizedDy * gapEndDist;
+        // 第一个控制点：在分支起点右侧下方，根据目标位置分散
+        const branchControl1X = branchStartX + (targetX - branchStartX) * 0.3;
+        const branchControl1Y = branchStartY + 30 + spreadOffset;
+        
+        // 第二个控制点：在目标节点附近，形成平滑曲线
+        const branchControl2X = targetX - (targetX - branchStartX) * 0.2;
+        const branchControl2Y = targetY + curveDepth * 0.5 + spreadOffset * 0.5;
         
         // 找到对应的连线
         const linkEntry = Array.from(linkMap.values()).find(entry => entry.target.id === targetNode.id);
@@ -3499,32 +3750,32 @@ function drawSameLayerAggregatedLink(group, nodeById, allNodes) {
         const linkIdStr = link ? (link.id || `link-${link.source}-${link.target}`) : '';
         const isSelected = selectedLinkId === linkIdStr;
         
-        // 绘制从标签后到目标节点的弧线
-        const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        const pathData2 = `M ${gapEndX} ${gapEndY} Q ${controlX} ${controlY} ${targetBottomX} ${targetBottomY}`;
-        path2.setAttribute('d', pathData2);
-        path2.setAttribute('stroke', isSelected ? '#ffd700' : '#aaa');
-        path2.setAttribute('stroke-width', isSelected ? '3' : '2');
-        path2.setAttribute('fill', 'none');
-        path2.setAttribute('stroke-linecap', 'round');
+        // 绘制从分支出发点到目标节点的弧线（三次贝塞尔曲线）
+        const branchPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const branchPathData = `M ${branchStartX} ${branchStartY} C ${branchControl1X} ${branchControl1Y} ${branchControl2X} ${branchControl2Y} ${targetX} ${targetY}`;
+        branchPath.setAttribute('d', branchPathData);
+        branchPath.setAttribute('stroke', isSelected ? '#ffd700' : '#aaa');
+        branchPath.setAttribute('stroke-width', isSelected ? '3' : '2');
+        branchPath.setAttribute('fill', 'none');
+        branchPath.setAttribute('stroke-linecap', 'round');
         if (linkIdStr) {
-            path2.setAttribute('data-link-id', linkIdStr);
+            branchPath.setAttribute('data-link-id', linkIdStr);
         }
         
-        // 创建箭头（在目标节点处）
+        // 创建箭头（在目标节点底边中点处，方向指向节点）
         const arrowLength = 8;
-        const arrowWidth = 6;
-        const angle = Math.atan2(targetBottomY - controlY, targetBottomX - controlX);
-        const arrowAngle1 = angle + Math.PI / 8;
-        const arrowAngle2 = angle - Math.PI / 8;
+        // 箭头方向：从第二个控制点指向目标点
+        const angle = Math.atan2(targetY - branchControl2Y, targetX - branchControl2X);
+        const arrowAngle1 = angle + Math.PI / 6;
+        const arrowAngle2 = angle - Math.PI / 6;
         
-        const arrowPoint1X = targetBottomX - arrowLength * Math.cos(arrowAngle1);
-        const arrowPoint1Y = targetBottomY - arrowLength * Math.sin(arrowAngle1);
-        const arrowPoint2X = targetBottomX - arrowLength * Math.cos(arrowAngle2);
-        const arrowPoint2Y = targetBottomY - arrowLength * Math.sin(arrowAngle2);
+        const arrowPoint1X = targetX - arrowLength * Math.cos(arrowAngle1);
+        const arrowPoint1Y = targetY - arrowLength * Math.sin(arrowAngle1);
+        const arrowPoint2X = targetX - arrowLength * Math.cos(arrowAngle2);
+        const arrowPoint2Y = targetY - arrowLength * Math.sin(arrowAngle2);
         
         const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        const arrowPath = `M ${targetBottomX} ${targetBottomY} L ${arrowPoint1X} ${arrowPoint1Y} L ${arrowPoint2X} ${arrowPoint2Y} Z`;
+        const arrowPath = `M ${targetX} ${targetY} L ${arrowPoint1X} ${arrowPoint1Y} L ${arrowPoint2X} ${arrowPoint2Y} Z`;
         arrow.setAttribute('d', arrowPath);
         arrow.setAttribute('fill', isSelected ? '#ffd700' : '#aaa');
         arrow.setAttribute('stroke', isSelected ? '#ffd700' : '#aaa');
@@ -3534,7 +3785,7 @@ function drawSameLayerAggregatedLink(group, nodeById, allNodes) {
         }
         
         // 点击选中
-        path2.addEventListener('click', function(e) {
+        branchPath.addEventListener('click', function(e) {
             e.stopPropagation();
             if (linkIdStr) selectLink(linkIdStr);
         });
@@ -3543,10 +3794,10 @@ function drawSameLayerAggregatedLink(group, nodeById, allNodes) {
             if (linkIdStr) selectLink(linkIdStr);
         });
         
-        path2.style.cursor = 'pointer';
+        branchPath.style.cursor = 'pointer';
         arrow.style.cursor = 'pointer';
         
-        aggregateGroup.appendChild(path2);
+        aggregateGroup.appendChild(branchPath);
         aggregateGroup.appendChild(arrow);
     });
     
@@ -3572,7 +3823,8 @@ function editSameLayerAggregateLinkLabel(group) {
     const svg = document.querySelector('.concept-graph') || document.querySelector('.scaffold-concept-graph');
     if (!svg) return;
     
-    const uniqueKey = `same-layer-${group.label}-${group.layer}`;
+    const layerStr = group.layer !== null && group.layer !== undefined ? group.layer : 'user-created';
+    const uniqueKey = `same-layer-${group.sourceId}-${group.label}-${layerStr}`;
     const labelElement = svg.querySelector(`text[data-same-layer-aggregate-label="true"][data-aggregate-key="${uniqueKey}"]`);
     if (!labelElement) return;
     
@@ -3621,7 +3873,7 @@ function editSameLayerAggregateLinkLabel(group) {
             
             // 更新显示
             labelElement.textContent = newLabel;
-            const newUniqueKey = `same-layer-${newLabel}-${group.layer}`;
+            const newUniqueKey = `same-layer-${group.sourceId}-${newLabel}-${layerStr}`;
             const aggregateGroup = svg.querySelector(`g[data-same-layer-aggregate-group="true"][data-aggregate-key="${uniqueKey}"]`);
             if (aggregateGroup) {
                 aggregateGroup.setAttribute('data-label', newLabel);
@@ -3662,9 +3914,16 @@ function editSameLayerAggregateLinkLabel(group) {
     });
 }
 
+//=============================================================================
+// 简化聚合连接（两个节点的圆弧连接）
+//=============================================================================
+
 // 导出函数到全局作用域，供其他模块调用
 window.displayFocusQuestion = displayFocusQuestion;
 window.drawGraph = drawGraph;
 window.displayConceptMap = displayConceptMap;
 window.enableCanvasZoom = enableCanvasZoom;
 window.showLoadingState = showLoadingState;
+window.editFocusQuestionText = editFocusQuestionText;
+window.ensureGraphInitialized = ensureGraphInitialized;
+window.updateStatusBar = updateStatusBar;
